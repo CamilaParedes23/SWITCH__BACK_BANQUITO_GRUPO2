@@ -20,8 +20,9 @@ public class CoreBancarioMapper {
         );
     }
 
-    public ValidacionCuentaCoreResponse toValidacionCuentaResponse(Boolean valida, String codigo, String mensaje) {
-        return new ValidacionCuentaCoreResponse(valida, codigo, mensaje);
+    public ValidacionCuentaCoreResponse toValidacionCuentaResponse(Boolean valida, String codigo, String mensaje,
+                                                                   String nombreBeneficiario) {
+        return new ValidacionCuentaCoreResponse(valida, codigo, mensaje, nombreBeneficiario);
     }
 
     public MovimientoCoreResponse toMovimientoResponse(Boolean exitoso, String codigo, String mensaje,
