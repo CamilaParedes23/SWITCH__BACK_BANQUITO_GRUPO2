@@ -3,6 +3,7 @@ package com.banquito.switchpagos.integrationcore.dto.internal;
 public record ValidacionCuentaCoreResponse(
         Boolean valida,
         String codigo,
-        String mensaje
+        String mensaje,
+        String nombreBeneficiario
 ) {
 }

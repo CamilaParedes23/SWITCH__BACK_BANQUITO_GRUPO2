@@ -126,20 +126,23 @@ public class CoreBancarioServiceStub implements CoreBancarioService {
             return coreBancarioMapper.toValidacionCuentaResponse(
                     Boolean.FALSE,
                     "CUENTA_DESTINO_NO_EXISTE",
-                    "La cuenta destino no existe en el Core Bancario simulado."
+                    "La cuenta destino no existe en el Core Bancario simulado.",
+                    null
             );
         }
         if (numeroCuenta != null && numeroCuenta.endsWith("9999")) {
             return coreBancarioMapper.toValidacionCuentaResponse(
                     Boolean.FALSE,
                     "CUENTA_DESTINO_BLOQUEADA",
-                    "La cuenta destino se encuentra bloqueada en el Core Bancario simulado."
+                    "La cuenta destino se encuentra bloqueada en el Core Bancario simulado.",
+                    null
             );
         }
         return coreBancarioMapper.toValidacionCuentaResponse(
                 Boolean.TRUE,
                 "CUENTA_DESTINO_VALIDA",
-                "Cuenta destino valida en el Core Bancario simulado."
+                "Cuenta destino valida en el Core Bancario simulado.",
+                "BENEFICIARIO SIMULADO"
         );
     }
 

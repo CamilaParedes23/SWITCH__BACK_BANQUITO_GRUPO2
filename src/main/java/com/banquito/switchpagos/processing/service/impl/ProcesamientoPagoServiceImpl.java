@@ -126,6 +126,9 @@ public class ProcesamientoPagoServiceImpl implements ProcesamientoPagoService {
         if (!Boolean.TRUE.equals(cuentaResponse.valida())) {
             throw new EstadoInvalidoException(cuentaResponse.codigo(), cuentaResponse.mensaje());
         }
+        if (cuentaResponse.nombreBeneficiario() != null && !cuentaResponse.nombreBeneficiario().isBlank()) {
+            lineaPago.setNombreBeneficiario(cuentaResponse.nombreBeneficiario());
+        }
         lineaPago.setEstado(EstadoLineaPago.VALIDADA);
         lineaPago.setFechaValidacion(OffsetDateTime.now(ZONA_HORARIA_OPERATIVA));
         lineaPago.setFechaActualizacion(OffsetDateTime.now(ZONA_HORARIA_OPERATIVA));

@@ -324,14 +324,16 @@ public class CoreBancarioServiceRestClient implements CoreBancarioService {
             return new ValidacionCuentaCoreResponse(
                     Boolean.TRUE.equals(validacion.valida()),
                     mapearCodigoValidacionDestino(validacion.codigo()),
-                    validacion.mensaje()
+                    validacion.mensaje(),
+                    validacion.nombreBeneficiario()
             );
         } catch (RestClientResponseException exception) {
             ErrorCoreResponse error = leerErrorCore(exception);
             return new ValidacionCuentaCoreResponse(
                     Boolean.FALSE,
                     mapearCodigoCore(error.code(), exception.getStatusCode()),
-                    mensajeCore(error.message(), "No fue posible validar la cuenta destino en Core.")
+                    mensajeCore(error.message(), "No fue posible validar la cuenta destino en Core."),
+                    null
             );
         } catch (ResourceAccessException exception) {
             throw new IntegracionCoreException("CORE_NO_DISPONIBLE", MENSAJE_CORE_NO_DISPONIBLE, exception);
