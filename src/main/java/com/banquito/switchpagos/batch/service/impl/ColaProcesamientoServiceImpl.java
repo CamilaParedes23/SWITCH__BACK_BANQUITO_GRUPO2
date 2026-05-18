@@ -7,6 +7,7 @@ import com.banquito.switchpagos.batch.dto.internal.LoteProcesamientoInternalDto;
 import com.banquito.switchpagos.batch.enums.EstadoColaProcesamiento;
 import com.banquito.switchpagos.batch.enums.EstadoLote;
 import com.banquito.switchpagos.batch.model.ColaProcesamiento;
+import com.banquito.switchpagos.batch.model.LotePago;
 import com.banquito.switchpagos.batch.repository.ColaProcesamientoRepository;
 import com.banquito.switchpagos.batch.service.ColaProcesamientoService;
 import com.banquito.switchpagos.batch.service.LotePagoService;
@@ -97,7 +98,7 @@ public class ColaProcesamientoServiceImpl implements ColaProcesamientoService {
     }
 
     private ResultadoProcesamientoColaResponse procesarCola(ColaProcesamiento colaProcesamiento) {
-        tomarCola(colaProcesamiento);
+        colaProcesamiento = tomarCola(colaProcesamiento);
         try {
             LoteProcesamientoInternalDto lote = lotePagoService.obtenerDatosProcesamiento(
                     colaProcesamiento.getLotePago().getUuidLote()
@@ -105,12 +106,12 @@ public class ColaProcesamientoServiceImpl implements ColaProcesamientoService {
             if (EstadoLote.RECIBIDO.equals(lote.estado()) || EstadoLote.ENCOLADO.equals(lote.estado())) {
                 ValidacionLoteResponse validacion = lotePagoService.validarLote(colaProcesamiento.getLotePago().getUuidLote());
                 if (!Boolean.TRUE.equals(validacion.valido())) {
-                    completarCola(colaProcesamiento, "LOTE_RECHAZADO_EN_VALIDACION");
+                    colaProcesamiento = completarCola(colaProcesamiento, "LOTE_RECHAZADO_EN_VALIDACION");
                     return construirResultado(colaProcesamiento, "LOTE_RECHAZADO_EN_VALIDACION",
                             "El lote fue rechazado durante la validacion automatica.");
                 }
             } else if (!EstadoLote.VALIDADO.equals(lote.estado())) {
-                completarCola(colaProcesamiento, "LOTE_ESTADO_NO_PROCESABLE");
+                colaProcesamiento = completarCola(colaProcesamiento, "LOTE_ESTADO_NO_PROCESABLE");
                 return construirResultado(colaProcesamiento, "LOTE_ESTADO_NO_PROCESABLE",
                         "El lote encolado ya no esta en un estado procesable.");
             }
@@ -121,18 +122,18 @@ public class ColaProcesamientoServiceImpl implements ColaProcesamientoService {
             );
             if (requiereLiquidacionAutomatica(procesamiento.estado())) {
                 liquidacionContableService.liquidarServicio(colaProcesamiento.getLotePago().getUuidLote());
-                completarCola(colaProcesamiento, null);
+                colaProcesamiento = completarCola(colaProcesamiento, null);
                 return construirResultado(colaProcesamiento, "LOTE_PROCESADO_Y_LIQUIDADO",
                         "Lote encolado procesado y liquidado correctamente.");
             }
-            completarCola(colaProcesamiento, null);
+            colaProcesamiento = completarCola(colaProcesamiento, null);
             return construirResultado(colaProcesamiento, "LOTE_FALLIDO_SIN_LIQUIDACION",
                     "Lote procesado sin lineas exitosas; no requiere liquidacion.");
         } catch (SwitchPagosException exception) {
-            registrarFallo(colaProcesamiento, exception.getCodigo() + ": " + exception.getMessage());
+            colaProcesamiento = registrarFallo(colaProcesamiento, exception.getCodigo() + ": " + exception.getMessage());
             return construirResultado(colaProcesamiento, exception.getCodigo(), exception.getMessage());
         } catch (RuntimeException exception) {
-            registrarFallo(colaProcesamiento, "ERROR_TECNICO_COLA: " + exception.getMessage());
+            colaProcesamiento = registrarFallo(colaProcesamiento, "ERROR_TECNICO_COLA: " + exception.getMessage());
             return construirResultado(colaProcesamiento, "ERROR_TECNICO_COLA",
                     "Ocurrio un error tecnico procesando la cola.");
         }
@@ -143,24 +144,31 @@ public class ColaProcesamientoServiceImpl implements ColaProcesamientoService {
                 || EstadoLote.PROCESADO_PARCIAL.name().equals(estadoLote);
     }
 
-    private void tomarCola(ColaProcesamiento colaProcesamiento) {
+    private ColaProcesamiento tomarCola(ColaProcesamiento colaProcesamiento) {
+        LotePago lotePago = colaProcesamiento.getLotePago();
         colaProcesamiento.setEstadoCola(EstadoColaProcesamiento.PROCESANDO);
         colaProcesamiento.setTomadoPor(ACTOR_COLA);
         colaProcesamiento.setTomadoEn(OffsetDateTime.now(ZONA_HORARIA_OPERATIVA));
         colaProcesamiento.setIntentos(valorEntero(colaProcesamiento.getIntentos()) + 1);
         colaProcesamiento.setFechaActualizacion(OffsetDateTime.now(ZONA_HORARIA_OPERATIVA));
-        colaProcesamientoRepository.save(colaProcesamiento);
+        ColaProcesamiento saved = colaProcesamientoRepository.save(colaProcesamiento);
+        saved.setLotePago(lotePago);
+        return saved;
     }
 
-    private void completarCola(ColaProcesamiento colaProcesamiento, String ultimoError) {
+    private ColaProcesamiento completarCola(ColaProcesamiento colaProcesamiento, String ultimoError) {
+        LotePago lotePago = colaProcesamiento.getLotePago();
         colaProcesamiento.setEstadoCola(EstadoColaProcesamiento.COMPLETADO);
         colaProcesamiento.setUltimoError(ultimoError);
         colaProcesamiento.setProximoReintentoEn(null);
         colaProcesamiento.setFechaActualizacion(OffsetDateTime.now(ZONA_HORARIA_OPERATIVA));
-        colaProcesamientoRepository.save(colaProcesamiento);
+        ColaProcesamiento saved = colaProcesamientoRepository.save(colaProcesamiento);
+        saved.setLotePago(lotePago);
+        return saved;
     }
 
-    private void registrarFallo(ColaProcesamiento colaProcesamiento, String ultimoError) {
+    private ColaProcesamiento registrarFallo(ColaProcesamiento colaProcesamiento, String ultimoError) {
+        LotePago lotePago = colaProcesamiento.getLotePago();
         Integer intentos = valorEntero(colaProcesamiento.getIntentos());
         Integer maxIntentos = valorEntero(colaProcesamiento.getMaxIntentos());
         if (intentos < maxIntentos) {
@@ -174,7 +182,9 @@ public class ColaProcesamientoServiceImpl implements ColaProcesamientoService {
         }
         colaProcesamiento.setUltimoError(recortar(ultimoError, 500));
         colaProcesamiento.setFechaActualizacion(OffsetDateTime.now(ZONA_HORARIA_OPERATIVA));
-        colaProcesamientoRepository.save(colaProcesamiento);
+        ColaProcesamiento saved = colaProcesamientoRepository.save(colaProcesamiento);
+        saved.setLotePago(lotePago);
+        return saved;
     }
 
     private ResultadoProcesamientoColaResponse construirResultado(ColaProcesamiento colaProcesamiento,
