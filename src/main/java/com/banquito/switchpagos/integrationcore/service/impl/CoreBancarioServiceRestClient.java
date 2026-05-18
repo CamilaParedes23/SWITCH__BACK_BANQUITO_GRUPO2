@@ -28,6 +28,7 @@ import com.banquito.switchpagos.integrationcore.dto.internal.ValidacionEmpresaCo
 import com.banquito.switchpagos.integrationcore.service.CoreBancarioService;
 import com.banquito.switchpagos.shared.exception.IntegracionCoreException;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.http.HttpStatusCode;
@@ -189,13 +190,15 @@ public class CoreBancarioServiceRestClient implements CoreBancarioService {
     @Override
     public CuentaFavoritaPagosCoreResponse obtenerCuentaFavoritaPagos(String ruc) {
         try {
-            ApiResponseCore<CuentaFavoritaPagosCoreResponse> response = restClient.get()
+            String response = restClient.get()
                     .uri("/api/v1/core/integracion-switch/empresas/{ruc}/cuenta-favorita-pagos", ruc)
                     .retrieve()
-                    .body(new ParameterizedTypeReference<>() {
-                    });
+                    .body(String.class);
 
-            CuentaFavoritaPagosCoreResponse cuentaFavorita = obtenerData(response);
+            CuentaFavoritaPagosCoreResponse cuentaFavorita = obtenerDataFlexible(
+                    response,
+                    CuentaFavoritaPagosCoreResponse.class
+            );
             registrarAuditoria("CORE_CUENTA_FAVORITA_PAGOS", ruc, cuentaFavorita.codigo());
             return cuentaFavorita;
         } catch (RestClientResponseException exception) {
@@ -473,6 +476,40 @@ public class CoreBancarioServiceRestClient implements CoreBancarioService {
             );
         }
         return response.data();
+    }
+
+    private <T> T obtenerDataFlexible(String responseBody, Class<T> tipoRespuesta) {
+        try {
+            if (responseBody == null || responseBody.isBlank()) {
+                throw new IntegracionCoreException(
+                        "ERROR_CORE",
+                        "El Core respondio sin datos validos para la operacion solicitada."
+                );
+            }
+            JsonNode root = objectMapper.readTree(responseBody);
+            if (root.has("success") && !root.path("success").asBoolean(false)) {
+                throw new IntegracionCoreException(
+                        "ERROR_CORE",
+                        mensajeCore(root.path("message").asText(null), "El Core rechazo la operacion solicitada.")
+                );
+            }
+            JsonNode data = root.has("data") ? root.get("data") : root;
+            if (data == null || data.isNull() || data.isMissingNode()) {
+                throw new IntegracionCoreException(
+                        "ERROR_CORE",
+                        "El Core respondio sin datos validos para la operacion solicitada."
+                );
+            }
+            return objectMapper.treeToValue(data, tipoRespuesta);
+        } catch (IntegracionCoreException exception) {
+            throw exception;
+        } catch (Exception exception) {
+            throw new IntegracionCoreException(
+                    "ERROR_CORE",
+                    "El Core respondio sin datos validos para la operacion solicitada.",
+                    exception
+            );
+        }
     }
 
     private ErrorCoreResponse leerErrorCore(RestClientResponseException exception) {
