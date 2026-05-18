@@ -15,9 +15,12 @@ import com.banquito.switchpagos.processing.dto.api.ProcesarLoteResponse;
 import com.banquito.switchpagos.processing.service.ProcesamientoPagoService;
 import com.banquito.switchpagos.pricing.service.LiquidacionContableService;
 import com.banquito.switchpagos.shared.exception.SwitchPagosException;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.time.OffsetDateTime;
 import java.time.ZoneId;
@@ -27,6 +30,7 @@ import java.util.List;
 @Service
 public class ColaProcesamientoServiceImpl implements ColaProcesamientoService {
 
+    private static final Logger LOGGER = LoggerFactory.getLogger(ColaProcesamientoServiceImpl.class);
     private static final ZoneId ZONA_HORARIA_OPERATIVA = ZoneId.of("America/Guayaquil");
     private static final String ACTOR_COLA = "SCHEDULER_COLA";
 
@@ -52,17 +56,21 @@ public class ColaProcesamientoServiceImpl implements ColaProcesamientoService {
     }
 
     @Override
+    @Transactional
     public ProcesarPendientesColaResponse procesarPendientesVencidos() {
+        OffsetDateTime fechaReferencia = OffsetDateTime.now(ZONA_HORARIA_OPERATIVA);
         List<ColaProcesamiento> pendientes = colaProcesamientoRepository
                 .findByEstadoColaInAndFechaProgramadaProcesoLessThanEqualOrderByPrioridadAscFechaProgramadaProcesoAsc(
                         estadosProcesables(),
-                        OffsetDateTime.now(ZONA_HORARIA_OPERATIVA),
+                        fechaReferencia,
                         PageRequest.of(0, maxLotesPorCiclo)
                 );
+        LOGGER.info("Scheduler cola: {} lotes vencidos encontrados hasta {}.", pendientes.size(), fechaReferencia);
         return procesarColas(pendientes);
     }
 
     @Override
+    @Transactional
     public ProcesarPendientesColaResponse procesarPendientesManual() {
         List<ColaProcesamiento> pendientes = colaProcesamientoRepository
                 .findByEstadoColaInOrderByPrioridadAscFechaProgramadaProcesoAsc(
@@ -82,6 +90,11 @@ public class ColaProcesamientoServiceImpl implements ColaProcesamientoService {
         Integer fallidos = 0;
 
         for (ColaProcesamiento colaProcesamiento : colas) {
+            LOGGER.info("Scheduler cola: procesando idCola={} uuidLote={} estadoCola={} fechaProgramada={}.",
+                    colaProcesamiento.getIdCola(),
+                    colaProcesamiento.getLotePago().getUuidLote(),
+                    colaProcesamiento.getEstadoCola(),
+                    colaProcesamiento.getFechaProgramadaProceso());
             ResultadoProcesamientoColaResponse resultado = procesarCola(colaProcesamiento);
             resultados.add(resultado);
             if (EstadoColaProcesamiento.COMPLETADO.name().equals(resultado.estadoCola())) {
@@ -129,9 +142,16 @@ public class ColaProcesamientoServiceImpl implements ColaProcesamientoService {
             return construirResultado(colaProcesamiento, "LOTE_FALLIDO_SIN_LIQUIDACION",
                     "Lote procesado sin lineas exitosas; no requiere liquidacion.");
         } catch (SwitchPagosException exception) {
+            LOGGER.warn("Scheduler cola: fallo de negocio en uuidLote={} codigo={} mensaje={}.",
+                    colaProcesamiento.getLotePago().getUuidLote(),
+                    exception.getCodigo(),
+                    exception.getMessage());
             registrarFallo(colaProcesamiento, exception.getCodigo() + ": " + exception.getMessage());
             return construirResultado(colaProcesamiento, exception.getCodigo(), exception.getMessage());
         } catch (RuntimeException exception) {
+            LOGGER.warn("Scheduler cola: fallo tecnico en uuidLote={}.",
+                    colaProcesamiento.getLotePago().getUuidLote(),
+                    exception);
             registrarFallo(colaProcesamiento, "ERROR_TECNICO_COLA: " + exception.getMessage());
             return construirResultado(colaProcesamiento, "ERROR_TECNICO_COLA",
                     "Ocurrio un error tecnico procesando la cola.");
