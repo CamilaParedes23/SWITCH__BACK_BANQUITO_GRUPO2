@@ -149,9 +149,7 @@ public class LotePagoServiceImpl implements LotePagoService {
         lotePagoRepository.save(lotePago);
         lineaPagoService.guardarLineasPendientes(lotePago, archivoPagoParseado.detalles());
         registrarHistorialEstado(lotePago, null, estadoInicial, "Registro inicial del lote.", "SISTEMA");
-        if (EstadoLote.ENCOLADO.equals(estadoInicial)) {
-            registrarColaProcesamiento(lotePago, fechaRecepcion);
-        }
+        registrarColaProcesamiento(lotePago, fechaRecepcion, estadoInicial);
         registrarAuditoria(lotePago, "CREACION_LOTE", null, construirDatosBasicos(lotePago));
         return lotePagoMapper.toCargaResponse(lotePago);
     }
@@ -411,14 +409,20 @@ public class LotePagoServiceImpl implements LotePagoService {
         return EstadoLote.ENCOLADO;
     }
 
-    private void registrarColaProcesamiento(LotePago lotePago, OffsetDateTime fechaRecepcion) {
+    private void registrarColaProcesamiento(LotePago lotePago, OffsetDateTime fechaRecepcion, EstadoLote estadoInicial) {
         LocalTime horaInicio = parametroSwitchService.obtenerHora(CodigoParametroSwitch.HORA_INICIO_LOTES_ENCOLADOS);
-        LocalDate siguienteDiaHabil = obtenerSiguienteDiaHabil(fechaRecepcion.toLocalDate());
+        Boolean procesamientoInmediato = EstadoLote.RECIBIDO.equals(estadoInicial);
+        LocalDate fechaHabilProgramada = procesamientoInmediato
+                ? fechaRecepcion.toLocalDate()
+                : obtenerSiguienteDiaHabil(fechaRecepcion.toLocalDate());
+        OffsetDateTime fechaProgramadaProceso = procesamientoInmediato
+                ? fechaRecepcion
+                : fechaHabilProgramada.atTime(horaInicio).atZone(ZONA_HORARIA_OPERATIVA).toOffsetDateTime();
         colaProcesamientoRepository.save(colaProcesamientoMapper.toEntity(
                 lotePago,
-                siguienteDiaHabil,
+                fechaHabilProgramada,
                 fechaRecepcion,
-                siguienteDiaHabil.atTime(horaInicio).atZone(ZONA_HORARIA_OPERATIVA).toOffsetDateTime(),
+                fechaProgramadaProceso,
                 parametroSwitchService.obtenerInteger(CodigoParametroSwitch.MAX_REINTENTOS_LOTE)
         ));
     }

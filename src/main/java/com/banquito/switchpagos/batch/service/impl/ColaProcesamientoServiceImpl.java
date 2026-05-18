@@ -11,7 +11,9 @@ import com.banquito.switchpagos.batch.repository.ColaProcesamientoRepository;
 import com.banquito.switchpagos.batch.service.ColaProcesamientoService;
 import com.banquito.switchpagos.batch.service.LotePagoService;
 import com.banquito.switchpagos.processing.dto.api.ProcesarLoteRequest;
+import com.banquito.switchpagos.processing.dto.api.ProcesarLoteResponse;
 import com.banquito.switchpagos.processing.service.ProcesamientoPagoService;
+import com.banquito.switchpagos.pricing.service.LiquidacionContableService;
 import com.banquito.switchpagos.shared.exception.SwitchPagosException;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.domain.PageRequest;
@@ -31,17 +33,20 @@ public class ColaProcesamientoServiceImpl implements ColaProcesamientoService {
     private final ColaProcesamientoRepository colaProcesamientoRepository;
     private final LotePagoService lotePagoService;
     private final ProcesamientoPagoService procesamientoPagoService;
+    private final LiquidacionContableService liquidacionContableService;
     private final Integer maxLotesPorCiclo;
     private final Integer reintentoDelayMinutos;
 
     public ColaProcesamientoServiceImpl(ColaProcesamientoRepository colaProcesamientoRepository,
                                         LotePagoService lotePagoService,
                                         ProcesamientoPagoService procesamientoPagoService,
+                                        LiquidacionContableService liquidacionContableService,
                                         @Value("${switch.cola.max-lotes-por-ciclo:10}") Integer maxLotesPorCiclo,
                                         @Value("${switch.cola.reintento-delay-minutos:5}") Integer reintentoDelayMinutos) {
         this.colaProcesamientoRepository = colaProcesamientoRepository;
         this.lotePagoService = lotePagoService;
         this.procesamientoPagoService = procesamientoPagoService;
+        this.liquidacionContableService = liquidacionContableService;
         this.maxLotesPorCiclo = maxLotesPorCiclo;
         this.reintentoDelayMinutos = reintentoDelayMinutos;
     }
@@ -110,13 +115,19 @@ public class ColaProcesamientoServiceImpl implements ColaProcesamientoService {
                         "El lote encolado ya no esta en un estado procesable.");
             }
 
-            procesamientoPagoService.procesarLote(
+            ProcesarLoteResponse procesamiento = procesamientoPagoService.procesarLote(
                     colaProcesamiento.getLotePago().getUuidLote(),
                     new ProcesarLoteRequest(ACTOR_COLA, "Procesamiento automatico de lote encolado.")
             );
+            if (requiereLiquidacionAutomatica(procesamiento.estado())) {
+                liquidacionContableService.liquidarServicio(colaProcesamiento.getLotePago().getUuidLote());
+                completarCola(colaProcesamiento, null);
+                return construirResultado(colaProcesamiento, "LOTE_PROCESADO_Y_LIQUIDADO",
+                        "Lote encolado procesado y liquidado correctamente.");
+            }
             completarCola(colaProcesamiento, null);
-            return construirResultado(colaProcesamiento, "LOTE_PROCESADO",
-                    "Lote encolado procesado correctamente.");
+            return construirResultado(colaProcesamiento, "LOTE_FALLIDO_SIN_LIQUIDACION",
+                    "Lote procesado sin lineas exitosas; no requiere liquidacion.");
         } catch (SwitchPagosException exception) {
             registrarFallo(colaProcesamiento, exception.getCodigo() + ": " + exception.getMessage());
             return construirResultado(colaProcesamiento, exception.getCodigo(), exception.getMessage());
@@ -125,6 +136,11 @@ public class ColaProcesamientoServiceImpl implements ColaProcesamientoService {
             return construirResultado(colaProcesamiento, "ERROR_TECNICO_COLA",
                     "Ocurrio un error tecnico procesando la cola.");
         }
+    }
+
+    private Boolean requiereLiquidacionAutomatica(String estadoLote) {
+        return EstadoLote.PROCESADO_TOTAL.name().equals(estadoLote)
+                || EstadoLote.PROCESADO_PARCIAL.name().equals(estadoLote);
     }
 
     private void tomarCola(ColaProcesamiento colaProcesamiento) {

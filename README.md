@@ -4,12 +4,22 @@ Backend Spring Boot organizado como monolito modular para el Switch de Pagos Mas
 
 ## Flujo funcional principal
 
+Para frontend, el flujo normal inicia con un solo endpoint:
+
 1. `POST /api/v1/pagos-masivos/lotes`
-2. `POST /api/v1/pagos-masivos/lotes/{uuidLote}/validar`
-3. `POST /api/v1/pagos-masivos/lotes/{uuidLote}/procesar`
-4. `POST /api/v1/pagos-masivos/lotes/{uuidLote}/liquidar`
-5. `GET /api/v1/pagos-masivos/lotes/{uuidLote}/novedades?formato=JSON`
-6. `GET /api/v1/pagos-masivos/lotes/{uuidLote}/comprobante?formato=JSON`
+
+Despues de la carga, el Switch registra el lote en la cola interna y el scheduler ejecuta automaticamente validacion, procesamiento financiero y liquidacion contable cuando corresponde por horario y dia habil.
+
+El frontend puede consultar el avance y los resultados con:
+
+1. `GET /api/v1/pagos-masivos/lotes/{uuidLote}/estado`
+2. `GET /api/v1/pagos-masivos/lotes/{uuidLote}/lineas`
+3. `GET /api/v1/pagos-masivos/lotes/{uuidLote}/novedades?formato=JSON`
+4. `GET /api/v1/pagos-masivos/lotes/{uuidLote}/comprobante?formato=JSON`
+
+Los endpoints `validar`, `procesar`, `liquidar` y `cola/procesar-pendientes` se mantienen para pruebas tecnicas y diagnostico.
+
+Detalle del scheduler: `docs/FLUJO_AUTOMATICO_SCHEDULER.md`.
 
 ## Formato simple de archivo CSV/TXT
 
