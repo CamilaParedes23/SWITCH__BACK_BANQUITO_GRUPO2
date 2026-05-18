@@ -26,7 +26,7 @@ Ejecutar la coleccion sobre una base limpia o con archivos que no hayan sido car
 - `lote_secuencial_invalido.csv`, `lote_sin_pie.csv`, `lote_sin_cabecera.csv`, `lote_registro_desconocido.csv`, `lote_fecha_invalida.csv`, `lote_monto_invalido.csv`: validaciones estructurales tempranas.
 - `lote_formato_no_soportado.pdf`: rechazo por extension no soportada.
 - `lote_sobregiro_exitoso.csv`: cuenta matriz `0010000000001` con saldo cero, sobregiro activo y limite suficiente.
-- `lote_sobregiro_limite_excedido.csv`: cuenta matriz `0010000000001` con monto mayor al limite de sobregiro esperado.
+- `lote_sobregiro_limite_excedido.csv`: cuenta matriz `0010000000003` con saldo suficiente para sueldos, pero limite de sobregiro insuficiente para comision + IVA.
 - `lote_sobregiro_sftp_exitoso.csv`: variante para subir por SFTP con cuenta favorita de pagos.
 
 ## Recomendacion de ejecucion

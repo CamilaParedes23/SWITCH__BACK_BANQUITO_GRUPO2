@@ -1,0 +1,95 @@
+-- Reset de datos Core para probar rechazo por limite de sobregiro insuficiente.
+-- Ejecutar en la BD MariaDB del Core antes de correr:
+-- "Sobregiro cuenta matriz / POST Cargar lote sobregiro limite excedido"
+-- y luego "POST Validar lote uuidLoteSobregiroExcedido".
+--
+-- Escenario:
+-- - La empresa 1790000001001 usa la cuenta matriz 0010000000003.
+-- - La cuenta matriz tiene saldo exacto para pagar sueldos: 1000.00.
+-- - El sobregiro esta activo, pero su limite es 0.00.
+-- - Por tanto, los sueldos se podrian procesar, pero la liquidacion estimada
+--   de comision + IVA no estaria cubierta.
+-- - La cuenta destino 0010000000004 pertenece al beneficiario 1700000003.
+
+SET @RUC_EMPRESA := CONVERT('1790000001001' USING utf8mb4) COLLATE utf8mb4_unicode_ci;
+SET @IDENTIFICACION_BENEFICIARIO := CONVERT('1700000003' USING utf8mb4) COLLATE utf8mb4_unicode_ci;
+SET @CUENTA_MATRIZ := CONVERT('0010000000003' USING utf8mb4) COLLATE utf8mb4_unicode_ci;
+SET @CUENTA_DESTINO := CONVERT('0010000000004' USING utf8mb4) COLLATE utf8mb4_unicode_ci;
+SET @SALDO_MATRIZ := 1000.00;
+SET @LIMITE_SOBREGIRO := 0.00;
+
+SELECT ID INTO @EMPRESA_ID
+FROM CLIENTE
+WHERE TIPO_IDENTIFICACION = 'RUC'
+  AND IDENTIFICACION = CONVERT(@RUC_EMPRESA USING utf8mb4) COLLATE utf8mb4_unicode_ci
+LIMIT 1;
+
+SELECT ID INTO @BENEFICIARIO_ID
+FROM CLIENTE
+WHERE IDENTIFICACION = CONVERT(@IDENTIFICACION_BENEFICIARIO USING utf8mb4) COLLATE utf8mb4_unicode_ci
+LIMIT 1;
+
+SELECT @EMPRESA_ID AS empresa_id,
+       @BENEFICIARIO_ID AS beneficiario_id;
+
+UPDATE CLIENTE
+SET ESTADO = 'ACTIVO',
+    ACTIVO_PAGOS_MASIVOS = 1
+WHERE ID = @EMPRESA_ID;
+
+UPDATE CLIENTE
+SET ESTADO = 'ACTIVO'
+WHERE ID = @BENEFICIARIO_ID;
+
+UPDATE CUENTA
+SET CLIENTE_ID = @EMPRESA_ID,
+    ESTADO = 'ACTIVA',
+    SALDO_CONTABLE = @SALDO_MATRIZ,
+    SALDO_DISPONIBLE = @SALDO_MATRIZ,
+    PERMITE_SOBREGIRO = 1,
+    LIMITE_SOBREGIRO = @LIMITE_SOBREGIRO,
+    ES_FAVORITA_PAGOS = 0,
+    FECHA_ULTIMO_MOVIMIENTO = NOW()
+WHERE NUMERO_CUENTA = CONVERT(@CUENTA_MATRIZ USING utf8mb4) COLLATE utf8mb4_unicode_ci;
+
+UPDATE CUENTA
+SET CLIENTE_ID = @BENEFICIARIO_ID,
+    ESTADO = 'ACTIVA',
+    SALDO_CONTABLE = 5377.00,
+    SALDO_DISPONIBLE = 5377.00,
+    PERMITE_SOBREGIRO = 0,
+    LIMITE_SOBREGIRO = 0.00,
+    ES_FAVORITA_PAGOS = 0,
+    FECHA_ULTIMO_MOVIMIENTO = NOW()
+WHERE NUMERO_CUENTA = CONVERT(@CUENTA_DESTINO USING utf8mb4) COLLATE utf8mb4_unicode_ci;
+
+UPDATE BLOQUEO_CUENTA
+SET ESTADO = 'LIBERADO',
+    FECHA_LIBERACION = NOW()
+WHERE ESTADO = 'ACTIVO'
+  AND CUENTA_ID IN (
+      SELECT ID
+      FROM CUENTA
+      WHERE NUMERO_CUENTA IN (
+          CONVERT(@CUENTA_MATRIZ USING utf8mb4) COLLATE utf8mb4_unicode_ci,
+          CONVERT(@CUENTA_DESTINO USING utf8mb4) COLLATE utf8mb4_unicode_ci
+      )
+  );
+
+SELECT c.NUMERO_CUENTA,
+       c.CLIENTE_ID,
+       cl.TIPO_IDENTIFICACION,
+       cl.IDENTIFICACION,
+       COALESCE(cl.RAZON_SOCIAL, CONCAT(COALESCE(cl.NOMBRES, ''), ' ', COALESCE(cl.APELLIDOS, ''))) AS titular,
+       c.ESTADO,
+       c.SALDO_CONTABLE,
+       c.SALDO_DISPONIBLE,
+       c.PERMITE_SOBREGIRO,
+       c.LIMITE_SOBREGIRO,
+       c.ES_FAVORITA_PAGOS
+FROM CUENTA c
+JOIN CLIENTE cl ON cl.ID = c.CLIENTE_ID
+WHERE c.NUMERO_CUENTA IN (
+    CONVERT(@CUENTA_MATRIZ USING utf8mb4) COLLATE utf8mb4_unicode_ci,
+    CONVERT(@CUENTA_DESTINO USING utf8mb4) COLLATE utf8mb4_unicode_ci
+);

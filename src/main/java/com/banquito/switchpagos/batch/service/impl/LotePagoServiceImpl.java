@@ -518,6 +518,14 @@ public class LotePagoServiceImpl implements LotePagoService {
                                                      List<ErrorGlobalResponse> errores) {
         BigDecimal saldoDisponible = valorMonetario(validacionCuentaMatriz.saldoDisponible());
         BigDecimal montoDeclarado = valorMonetario(lotePago.getMontoTotalDeclarado());
+        if (saldoDisponible.compareTo(montoDeclarado) < 0) {
+            errores.add(new ErrorGlobalResponse(
+                    "SALDO_INSUFICIENTE_MONTO_LOTE",
+                    "La cuenta matriz no tiene saldo disponible suficiente para cubrir el monto declarado del lote."
+            ));
+            return;
+        }
+
         ProyeccionLiquidacionInternalDto proyeccion = proyeccionLiquidacionService.calcularProyeccion(
                 lotePago.getTipoServicio().getCodigo(),
                 lotePago.getTotalRegistrosDeclarado()
@@ -529,8 +537,8 @@ public class LotePagoServiceImpl implements LotePagoService {
         BigDecimal requeridoTotal = montoDeclarado.add(valorMonetario(proyeccion.totalDebitado()));
         if (capacidadTotal.compareTo(requeridoTotal) < 0) {
             errores.add(new ErrorGlobalResponse(
-                    "CAPACIDAD_FINANCIERA_INSUFICIENTE",
-                    "La cuenta matriz no cubre el monto declarado mas la comision e IVA estimados con saldo disponible y sobregiro autorizado."
+                    "SOBREGIRO_INSUFICIENTE_LIQUIDACION",
+                    "La cuenta matriz cubre los pagos, pero no cubre la comision e IVA estimados con el sobregiro autorizado."
             ));
         }
     }

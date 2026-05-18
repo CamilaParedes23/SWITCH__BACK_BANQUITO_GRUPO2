@@ -549,7 +549,7 @@
                 },
                 {
                   "key": "cuentaMatrizCargo",
-                  "value": "{{cuentaMatrizCargo}}",
+                  "value": "0010000000003",
                   "type": "text"
                 },
                 {
@@ -582,7 +582,8 @@
               "path": [
                 "lotes"
               ]
-            }
+            },
+            "description": "Escenario negativo: la cuenta matriz 0010000000003 tiene saldo suficiente para el pago, pero limite de sobregiro insuficiente para comision + IVA estimados."
           },
           "event": [
             {
