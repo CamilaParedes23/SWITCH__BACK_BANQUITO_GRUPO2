@@ -86,3 +86,5 @@ El SFTP embebido escucha en `localhost:2222` por defecto y usa las mismas creden
 sftp -P 2222 empresa001@localhost
 put postman/examples/lote_valido.csv
 ```
+
+Durante la carga SFTP, el Switch guarda una metadata tecnica asociada al archivo con el usuario y RUC devueltos por el login del Core. Al procesar el inbox, el archivo se rechaza si el RUC autenticado no coincide con el RUC de la cabecera `H`, o si el archivo fue copiado manualmente al directorio sin pasar por SFTP.

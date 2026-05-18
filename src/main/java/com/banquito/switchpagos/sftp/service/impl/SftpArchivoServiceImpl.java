@@ -3,8 +3,10 @@ package com.banquito.switchpagos.sftp.service.impl;
 import com.banquito.switchpagos.batch.dto.internal.RegistroLoteInternalDto;
 import com.banquito.switchpagos.batch.enums.CanalIngreso;
 import com.banquito.switchpagos.batch.service.LotePagoService;
+import com.banquito.switchpagos.sftp.dto.internal.SftpCargaMetadata;
 import com.banquito.switchpagos.sftp.config.SftpProperties;
 import com.banquito.switchpagos.sftp.service.SftpArchivoService;
+import com.banquito.switchpagos.sftp.service.SftpMetadataService;
 import com.banquito.switchpagos.sftp.support.ArchivoLocalMultipartFile;
 import org.springframework.stereotype.Service;
 
@@ -21,24 +23,30 @@ public class SftpArchivoServiceImpl implements SftpArchivoService {
 
     private final LotePagoService lotePagoService;
     private final SftpProperties sftpProperties;
+    private final SftpMetadataService sftpMetadataService;
 
-    public SftpArchivoServiceImpl(LotePagoService lotePagoService, SftpProperties sftpProperties) {
+    public SftpArchivoServiceImpl(LotePagoService lotePagoService,
+                                  SftpProperties sftpProperties,
+                                  SftpMetadataService sftpMetadataService) {
         this.lotePagoService = lotePagoService;
         this.sftpProperties = sftpProperties;
+        this.sftpMetadataService = sftpMetadataService;
     }
 
     @Override
     public void procesarArchivo(Path archivo) {
         try {
             CabeceraSftp cabecera = leerCabecera(archivo);
+            SftpCargaMetadata metadata = sftpMetadataService.leerMetadata(archivo);
+            validarMetadataContraCabecera(metadata, cabecera);
             lotePagoService.registrarLote(new RegistroLoteInternalDto(
                     new ArchivoLocalMultipartFile(archivo),
                     cabecera.tipoServicio(),
                     cabecera.cuentaMatrizCargo(),
                     CanalIngreso.SFTP,
                     null,
-                    cabecera.usernameCredencialWebCore(),
-                    cabecera.rucEmpresa()
+                    metadata.usuario(),
+                    metadata.rucEmpresa()
             ));
             moverArchivo(archivo, "processed");
         } catch (Exception exception) {
@@ -59,22 +67,25 @@ public class SftpArchivoServiceImpl implements SftpArchivoService {
         if (campos.length != 7) {
             throw new IllegalArgumentException("La cabecera H del archivo SFTP no tiene 7 campos.");
         }
-        String username = obtenerUsernameDesdeRuta(archivo);
         return new CabeceraSftp(
                 campos[1].trim(),
                 campos[2].trim(),
-                campos[4].trim(),
-                username
+                campos[4].trim()
         );
     }
 
-    private String obtenerUsernameDesdeRuta(Path archivo) {
-        Path root = Path.of(sftpProperties.getRootDirectory()).toAbsolutePath().normalize();
-        Path absoluto = archivo.toAbsolutePath().normalize();
-        if (absoluto.getParent() != null && !absoluto.getParent().equals(root)) {
-            return absoluto.getParent().getFileName().toString();
+    private void validarMetadataContraCabecera(SftpCargaMetadata metadata, CabeceraSftp cabecera) {
+        if (metadata.rucEmpresa() == null || metadata.rucEmpresa().isBlank()) {
+            throw new IllegalArgumentException("La metadata SFTP no contiene RUC de empresa autenticada.");
         }
-        return null;
+        if (!metadata.rucEmpresa().equals(cabecera.rucEmpresa())) {
+            throw new IllegalArgumentException(
+                    "El RUC del archivo SFTP no coincide con la empresa autenticada en la carga."
+            );
+        }
+        if (metadata.usuario() == null || metadata.usuario().isBlank()) {
+            throw new IllegalArgumentException("La metadata SFTP no contiene usuario autenticado.");
+        }
     }
 
     private void moverArchivo(Path archivo, String subdirectorio) throws IOException {
@@ -85,6 +96,7 @@ public class SftpArchivoServiceImpl implements SftpArchivoService {
                 destinoDirectorio.resolve(nombreConTimestamp(archivo)),
                 StandardCopyOption.REPLACE_EXISTING
         );
+        moverMetadata(archivo, destinoDirectorio);
     }
 
     private void moverArchivoConError(Path archivo, Exception exception) {
@@ -93,6 +105,7 @@ public class SftpArchivoServiceImpl implements SftpArchivoService {
             Files.createDirectories(destinoDirectorio);
             Path destino = destinoDirectorio.resolve(nombreConTimestamp(archivo));
             Files.move(archivo, destino, StandardCopyOption.REPLACE_EXISTING);
+            moverMetadata(archivo, destinoDirectorio);
             Files.writeString(
                     destinoDirectorio.resolve(destino.getFileName() + ".error.txt"),
                     exception.getMessage() != null ? exception.getMessage() : exception.getClass().getName(),
@@ -100,6 +113,17 @@ public class SftpArchivoServiceImpl implements SftpArchivoService {
             );
         } catch (IOException ignored) {
             // Si falla el movimiento a error, el scheduler volvera a intentar en el siguiente ciclo.
+        }
+    }
+
+    private void moverMetadata(Path archivo, Path destinoDirectorio) throws IOException {
+        Path metadata = sftpMetadataService.metadataPath(archivo);
+        if (Files.exists(metadata)) {
+            Files.move(
+                    metadata,
+                    destinoDirectorio.resolve(nombreConTimestamp(metadata)),
+                    StandardCopyOption.REPLACE_EXISTING
+            );
         }
     }
 
@@ -111,8 +135,7 @@ public class SftpArchivoServiceImpl implements SftpArchivoService {
     private record CabeceraSftp(
             String rucEmpresa,
             String tipoServicio,
-            String cuentaMatrizCargo,
-            String usernameCredencialWebCore
+            String cuentaMatrizCargo
     ) {
     }
 }
