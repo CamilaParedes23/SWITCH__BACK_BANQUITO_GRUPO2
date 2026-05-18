@@ -108,6 +108,13 @@ public class NotificacionServiceImpl implements NotificacionService {
 
     @Override
     @Transactional
+    public void notificarLineaExitosa(LineaPagoInternalDto lineaPagoInternalDto, String rucEmpresa) {
+        registrarNotificacionLineaExitosa(lineaPagoInternalDto, rucEmpresa);
+        enviarNotificacionesPendientes();
+    }
+
+    @Override
+    @Transactional
     public void enviarNotificacionesPendientes() {
         notificacionBeneficiarioRepository.findByEstadoEnvio(EstadoEnvioNotificacion.PENDIENTE)
                 .forEach(this::enviarEmailReal);

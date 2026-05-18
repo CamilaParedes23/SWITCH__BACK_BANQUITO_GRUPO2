@@ -1,0 +1,451 @@
+{
+  "info": {
+    "_postman_id": "9f7d4a8b-6f20-4c6f-9f7a-prod-scheduler",
+    "name": "Switch Pagos Masivos - Produccion Scheduler",
+    "description": "Coleccion separada para probar el flujo productivo: el frontend solo carga el archivo y el Switch valida, procesa y liquida mediante scheduler. No mezclar con la coleccion exhaustiva.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "event": [
+    {
+      "listen": "prerequest",
+      "script": {
+        "type": "text/javascript",
+        "exec": [
+          "pm.request.headers.upsert({ key: 'Accept', value: 'application/json' });"
+        ]
+      }
+    }
+  ],
+  "variable": [
+    { "key": "baseUrl", "value": "http://localhost:8080" },
+    { "key": "apiBase", "value": "{{baseUrl}}/api/v1/pagos-masivos" },
+    { "key": "rucEmpresa", "value": "1790000001001" },
+    { "key": "tipoServicio", "value": "NOM" },
+    { "key": "cuentaMatrizCargo", "value": "0010000000001" },
+    { "key": "usernameCredencialWebCore", "value": "empresa001" },
+    { "key": "idCredencialWebCore", "value": "1" },
+    { "key": "loginUsuario", "value": "empresa001" },
+    { "key": "loginContrasena", "value": "Banquito123*" },
+    { "key": "uuidLoteEncolado", "value": "" },
+    { "key": "uuidLoteAutomatico", "value": "" },
+    { "key": "uuidLoteCuentaMatrizError", "value": "" },
+    { "key": "uuidLoteCuentaDestinoError", "value": "" }
+  ],
+  "item": [
+    {
+      "name": "00 Autenticacion",
+      "item": [
+        {
+          "name": "POST Login empresa",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"usuario\": \"{{loginUsuario}}\",\n  \"contrasena\": \"{{loginContrasena}}\"\n}"
+            },
+            "url": {
+              "raw": "{{apiBase}}/auth/login",
+              "host": ["{{apiBase}}"],
+              "path": ["auth", "login"]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Login exitoso', function () { pm.response.to.have.status(200); const json = pm.response.json(); pm.expect(json.autenticado).to.eql(true); });",
+                  "const json = pm.response.json(); if (json.rucEmpresa) pm.collectionVariables.set('rucEmpresa', json.rucEmpresa); if (json.usuario) pm.collectionVariables.set('usernameCredencialWebCore', json.usuario);"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "01 Debe quedar ENCOLADO",
+      "description": "Antes de ejecutar esta carpeta, configure SWITCH_PARAMETROS_HORA_CORTE_PROCESO con una hora anterior a la hora actual y reinicie el Switch. Ejemplo: si son 15:00, use 14:00.",
+      "item": [
+        {
+          "name": "POST Cargar lote correcto para encolar",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                { "key": "archivo", "type": "file", "src": "postman/production_examples/prod_lote_correcto_encolado.csv" },
+                { "key": "tipoServicio", "value": "{{tipoServicio}}", "type": "text" },
+                { "key": "cuentaMatrizCargo", "value": "{{cuentaMatrizCargo}}", "type": "text" },
+                { "key": "canalIngreso", "value": "PORTAL_WEB", "type": "text" },
+                { "key": "rucEmpresa", "value": "{{rucEmpresa}}", "type": "text" },
+                { "key": "idCredencialWebCore", "value": "{{idCredencialWebCore}}", "type": "text" },
+                { "key": "usernameCredencialWebCore", "value": "{{usernameCredencialWebCore}}", "type": "text" }
+              ]
+            },
+            "url": {
+              "raw": "{{apiBase}}/lotes",
+              "host": ["{{apiBase}}"],
+              "path": ["lotes"]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Carga creada', function () { pm.response.to.have.status(201); });",
+                  "pm.test('Queda ENCOLADO', function () { const json = pm.response.json(); pm.expect(json.estado).to.eql('ENCOLADO'); pm.collectionVariables.set('uuidLoteEncolado', json.uuidLote); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "GET Estado lote encolado",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{apiBase}}/lotes/{{uuidLoteEncolado}}/estado",
+              "host": ["{{apiBase}}"],
+              "path": ["lotes", "{{uuidLoteEncolado}}", "estado"]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Estado consultado', function () { pm.response.to.have.status(200); });",
+                  "pm.test('Sigue ENCOLADO antes de su horario', function () { const json = pm.response.json(); pm.expect(json.estado).to.eql('ENCOLADO'); });"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "02 Debe procesarse automaticamente",
+      "description": "Antes de ejecutar esta carpeta, configure SWITCH_PARAMETROS_HORA_CORTE_PROCESO con una hora posterior a la hora actual y reinicie el Switch. Ejemplo: si son 15:00, use 23:59. Espere al menos SWITCH_COLA_SCHEDULER_FIXED_DELAY_MS antes de consultar estado.",
+      "item": [
+        {
+          "name": "POST Cargar lote correcto automatico",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                { "key": "archivo", "type": "file", "src": "postman/production_examples/prod_lote_correcto_automatico.csv" },
+                { "key": "tipoServicio", "value": "{{tipoServicio}}", "type": "text" },
+                { "key": "cuentaMatrizCargo", "value": "{{cuentaMatrizCargo}}", "type": "text" },
+                { "key": "canalIngreso", "value": "PORTAL_WEB", "type": "text" },
+                { "key": "rucEmpresa", "value": "{{rucEmpresa}}", "type": "text" },
+                { "key": "idCredencialWebCore", "value": "{{idCredencialWebCore}}", "type": "text" },
+                { "key": "usernameCredencialWebCore", "value": "{{usernameCredencialWebCore}}", "type": "text" }
+              ]
+            },
+            "url": {
+              "raw": "{{apiBase}}/lotes",
+              "host": ["{{apiBase}}"],
+              "path": ["lotes"]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Carga creada', function () { pm.response.to.have.status(201); });",
+                  "pm.test('Queda RECIBIDO inicialmente', function () { const json = pm.response.json(); pm.expect(json.estado).to.eql('RECIBIDO'); pm.collectionVariables.set('uuidLoteAutomatico', json.uuidLote); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "POST Forzar scheduler en demo",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{apiBase}}/cola/procesar-pendientes",
+              "host": ["{{apiBase}}"],
+              "path": ["cola", "procesar-pendientes"]
+            },
+            "description": "Usar solo para demostracion si no se desea esperar el fixed delay del scheduler."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Scheduler ejecutado', function () { pm.response.to.have.status(200); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "GET Estado lote automatico",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{apiBase}}/lotes/{{uuidLoteAutomatico}}/estado",
+              "host": ["{{apiBase}}"],
+              "path": ["lotes", "{{uuidLoteAutomatico}}", "estado"]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Estado consultado', function () { pm.response.to.have.status(200); });",
+                  "pm.test('Estado final esperado', function () { const json = pm.response.json(); pm.expect(['CERRADO','PROCESADO_TOTAL','PROCESADO_PARCIAL','FALLIDO']).to.include(json.estado); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "GET Lineas lote automatico",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{apiBase}}/lotes/{{uuidLoteAutomatico}}/lineas",
+              "host": ["{{apiBase}}"],
+              "path": ["lotes", "{{uuidLoteAutomatico}}", "lineas"]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Lineas consultadas', function () { pm.response.to.have.status(200); });"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "03 Errores de carga sin lote",
+      "description": "Estos archivos fallan en carga por estructura. No deben crear lote ni cola.",
+      "item": [
+        {
+          "name": "POST Cargar error sin pie",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                { "key": "archivo", "type": "file", "src": "postman/production_examples/prod_lote_error_sin_pie.csv" },
+                { "key": "tipoServicio", "value": "{{tipoServicio}}", "type": "text" },
+                { "key": "cuentaMatrizCargo", "value": "{{cuentaMatrizCargo}}", "type": "text" },
+                { "key": "canalIngreso", "value": "PORTAL_WEB", "type": "text" },
+                { "key": "rucEmpresa", "value": "{{rucEmpresa}}", "type": "text" },
+                { "key": "idCredencialWebCore", "value": "{{idCredencialWebCore}}", "type": "text" },
+                { "key": "usernameCredencialWebCore", "value": "{{usernameCredencialWebCore}}", "type": "text" }
+              ]
+            },
+            "url": { "raw": "{{apiBase}}/lotes", "host": ["{{apiBase}}"], "path": ["lotes"] }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Carga rechazada', function () { pm.response.to.have.status(400); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "POST Cargar error totales",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                { "key": "archivo", "type": "file", "src": "postman/production_examples/prod_lote_error_totales.csv" },
+                { "key": "tipoServicio", "value": "{{tipoServicio}}", "type": "text" },
+                { "key": "cuentaMatrizCargo", "value": "{{cuentaMatrizCargo}}", "type": "text" },
+                { "key": "canalIngreso", "value": "PORTAL_WEB", "type": "text" },
+                { "key": "rucEmpresa", "value": "{{rucEmpresa}}", "type": "text" },
+                { "key": "idCredencialWebCore", "value": "{{idCredencialWebCore}}", "type": "text" },
+                { "key": "usernameCredencialWebCore", "value": "{{usernameCredencialWebCore}}", "type": "text" }
+              ]
+            },
+            "url": { "raw": "{{apiBase}}/lotes", "host": ["{{apiBase}}"], "path": ["lotes"] }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Carga rechazada', function () { pm.response.to.have.status(400); });"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "04 Errores con lote y scheduler",
+      "description": "Estos archivos si crean lote. El scheduler debe llevarlos a RECHAZADO o FALLIDO segun la etapa donde fallen.",
+      "item": [
+        {
+          "name": "POST Cargar cuenta matriz invalida",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                { "key": "archivo", "type": "file", "src": "postman/production_examples/prod_lote_error_cuenta_matriz.csv" },
+                { "key": "tipoServicio", "value": "{{tipoServicio}}", "type": "text" },
+                { "key": "cuentaMatrizCargo", "value": "0010000000999", "type": "text" },
+                { "key": "canalIngreso", "value": "PORTAL_WEB", "type": "text" },
+                { "key": "rucEmpresa", "value": "{{rucEmpresa}}", "type": "text" },
+                { "key": "idCredencialWebCore", "value": "{{idCredencialWebCore}}", "type": "text" },
+                { "key": "usernameCredencialWebCore", "value": "{{usernameCredencialWebCore}}", "type": "text" }
+              ]
+            },
+            "url": { "raw": "{{apiBase}}/lotes", "host": ["{{apiBase}}"], "path": ["lotes"] }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Lote creado', function () { pm.response.to.have.status(201); const json = pm.response.json(); pm.collectionVariables.set('uuidLoteCuentaMatrizError', json.uuidLote); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "POST Cargar cuenta destino invalida",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                { "key": "archivo", "type": "file", "src": "postman/production_examples/prod_lote_error_cuenta_destino.csv" },
+                { "key": "tipoServicio", "value": "{{tipoServicio}}", "type": "text" },
+                { "key": "cuentaMatrizCargo", "value": "{{cuentaMatrizCargo}}", "type": "text" },
+                { "key": "canalIngreso", "value": "PORTAL_WEB", "type": "text" },
+                { "key": "rucEmpresa", "value": "{{rucEmpresa}}", "type": "text" },
+                { "key": "idCredencialWebCore", "value": "{{idCredencialWebCore}}", "type": "text" },
+                { "key": "usernameCredencialWebCore", "value": "{{usernameCredencialWebCore}}", "type": "text" }
+              ]
+            },
+            "url": { "raw": "{{apiBase}}/lotes", "host": ["{{apiBase}}"], "path": ["lotes"] }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Lote creado', function () { pm.response.to.have.status(201); const json = pm.response.json(); pm.collectionVariables.set('uuidLoteCuentaDestinoError', json.uuidLote); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "POST Forzar scheduler errores",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": { "raw": "{{apiBase}}/cola/procesar-pendientes", "host": ["{{apiBase}}"], "path": ["cola", "procesar-pendientes"] }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Scheduler ejecutado', function () { pm.response.to.have.status(200); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "GET Estado cuenta matriz invalida",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": { "raw": "{{apiBase}}/lotes/{{uuidLoteCuentaMatrizError}}/estado", "host": ["{{apiBase}}"], "path": ["lotes", "{{uuidLoteCuentaMatrizError}}", "estado"] }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Queda RECHAZADO en validacion', function () { pm.response.to.have.status(200); const json = pm.response.json(); pm.expect(json.estado).to.eql('RECHAZADO'); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "GET Estado cuenta destino invalida",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": { "raw": "{{apiBase}}/lotes/{{uuidLoteCuentaDestinoError}}/estado", "host": ["{{apiBase}}"], "path": ["lotes", "{{uuidLoteCuentaDestinoError}}", "estado"] }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Queda FALLIDO en procesamiento', function () { pm.response.to.have.status(200); const json = pm.response.json(); pm.expect(json.estado).to.eql('FALLIDO'); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "GET Lineas cuenta destino invalida",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": { "raw": "{{apiBase}}/lotes/{{uuidLoteCuentaDestinoError}}/lineas", "host": ["{{apiBase}}"], "path": ["lotes", "{{uuidLoteCuentaDestinoError}}", "lineas"] }
+          }
+        }
+      ]
+    }
+  ]
+}
