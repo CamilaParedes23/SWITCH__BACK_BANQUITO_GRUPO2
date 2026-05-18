@@ -15,11 +15,15 @@ import com.banquito.switchpagos.processing.dto.api.ProcesarLoteRequest;
 import com.banquito.switchpagos.processing.dto.api.ProcesarLoteResponse;
 import com.banquito.switchpagos.processing.dto.api.ResultadoProcesamientoResponse;
 import com.banquito.switchpagos.processing.enums.EstadoLineaPago;
+import com.banquito.switchpagos.processing.mapper.LineaPagoMapper;
 import com.banquito.switchpagos.processing.mapper.ResultadoProcesamientoMapper;
 import com.banquito.switchpagos.processing.model.LineaPago;
 import com.banquito.switchpagos.processing.repository.LineaPagoRepository;
 import com.banquito.switchpagos.processing.service.ProcesamientoPagoService;
 import com.banquito.switchpagos.processing.service.ValidadorLineaPagoService;
+import com.banquito.switchpagos.report.service.NotificacionService;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -31,6 +35,7 @@ import java.util.UUID;
 @Service
 public class ProcesamientoPagoServiceImpl implements ProcesamientoPagoService {
 
+    private static final Logger LOGGER = LoggerFactory.getLogger(ProcesamientoPagoServiceImpl.class);
     private static final ZoneId ZONA_HORARIA_OPERATIVA = ZoneId.of("America/Guayaquil");
 
     private final LotePagoService lotePagoService;
@@ -38,17 +43,23 @@ public class ProcesamientoPagoServiceImpl implements ProcesamientoPagoService {
     private final ValidadorLineaPagoService validadorLineaPagoService;
     private final CoreBancarioService coreBancarioService;
     private final ResultadoProcesamientoMapper resultadoProcesamientoMapper;
+    private final LineaPagoMapper lineaPagoMapper;
+    private final NotificacionService notificacionService;
 
     public ProcesamientoPagoServiceImpl(LotePagoService lotePagoService,
                                         LineaPagoRepository lineaPagoRepository,
                                         ValidadorLineaPagoService validadorLineaPagoService,
                                         CoreBancarioService coreBancarioService,
-                                        ResultadoProcesamientoMapper resultadoProcesamientoMapper) {
+                                        ResultadoProcesamientoMapper resultadoProcesamientoMapper,
+                                        LineaPagoMapper lineaPagoMapper,
+                                        NotificacionService notificacionService) {
         this.lotePagoService = lotePagoService;
         this.lineaPagoRepository = lineaPagoRepository;
         this.validadorLineaPagoService = validadorLineaPagoService;
         this.coreBancarioService = coreBancarioService;
         this.resultadoProcesamientoMapper = resultadoProcesamientoMapper;
+        this.lineaPagoMapper = lineaPagoMapper;
+        this.notificacionService = notificacionService;
     }
 
     @Override
@@ -92,6 +103,7 @@ public class ProcesamientoPagoServiceImpl implements ProcesamientoPagoService {
             validarLinea(loteProcesamiento, lineaPago);
             enviarLineaAlCore(loteProcesamiento, lineaPago);
             registrarLineaExitosa(lineaPago);
+            notificarLineaExitosa(loteProcesamiento, lineaPago);
         } catch (IntegracionCoreException exception) {
             if (esErrorTecnicoCore(exception)) {
                 registrarLineaFallida(lineaPago, exception.getCodigo(), exception.getMessage());
@@ -181,6 +193,20 @@ public class ProcesamientoPagoServiceImpl implements ProcesamientoPagoService {
         lineaPago.setFechaProceso(OffsetDateTime.now(ZONA_HORARIA_OPERATIVA));
         lineaPago.setFechaActualizacion(OffsetDateTime.now(ZONA_HORARIA_OPERATIVA));
         lineaPagoRepository.save(lineaPago);
+    }
+
+    private void notificarLineaExitosa(LoteProcesamientoInternalDto loteProcesamiento, LineaPago lineaPago) {
+        try {
+            notificacionService.notificarLineaExitosa(
+                    lineaPagoMapper.toInternalDto(lineaPago),
+                    loteProcesamiento.rucEmpresa()
+            );
+        } catch (RuntimeException exception) {
+            LOGGER.warn("No se pudo notificar la linea exitosa idLinea={} del lote {}. El pago permanece exitoso.",
+                    lineaPago.getIdLinea(),
+                    loteProcesamiento.uuidLote(),
+                    exception);
+        }
     }
 
     private void registrarLineaRechazada(LineaPago lineaPago, String codigoError, String mensajeError) {
