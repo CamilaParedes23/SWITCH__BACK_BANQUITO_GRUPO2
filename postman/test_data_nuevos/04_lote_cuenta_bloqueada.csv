@@ -1,0 +1,6 @@
+H,1790000002001,NOM,2026-05-18T08:20:00-05:00,0010000000619,4,500.00
+D,1,1700000001,Kevin Perez,0010000000501,100.00,Sueldo Mayo,kevin@correo.com
+D,2,1700000002,Maria Gomez,0010000000002,200.00,Sueldo Mayo,maria@correo.com
+D,3,1700000003,Carlos Rodrigue,0010000000004,150.00,Sueldo Mayo,carlos@correo.com
+D,4,1700000005,Luis Sanchez,0010000000005,50.00,Pago Bloqueado,luis@correo.com
+T,ABC123HASH,4,500.00

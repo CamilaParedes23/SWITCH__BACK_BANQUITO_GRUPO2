@@ -1,0 +1,6 @@
+H,1790000002001,NOM,2026-05-18T09:30:00-05:00,0010000000619,4,500.00
+D,1,1700000005,Luis Sanchez,0010000000005,50.00,Sueldo Bloqueado,luis@correo.com
+D,2,1799999999,No Existe,9999999999999,50.00,Cuenta Inexistente,falso@correo.com
+D,3,1700000001,Kevin Perez,0010000000501,-50.00,Monto Negativo,kevin@correo.com
+D,4,1700000002,Maria Gomez,0010000000002,450.00,Sueldo Mayo,maria@correo.com
+T,ABC123HASH,4,500.00
