@@ -25,6 +25,7 @@ import java.util.List;
 public class EmbeddedSftpServer {
 
     private static final Logger LOGGER = LoggerFactory.getLogger(EmbeddedSftpServer.class);
+    private static final String ROL_EMPRESA = "EMPRESA";
     private static final String ROL_EMPRESA_PAGOS_MASIVOS = "EMPRESA_PAGOS_MASIVOS";
 
     private final SftpProperties properties;
@@ -82,7 +83,7 @@ public class EmbeddedSftpServer {
                 if (!Boolean.TRUE.equals(response.autenticado())) {
                     return false;
                 }
-                if (!ROL_EMPRESA_PAGOS_MASIVOS.equals(response.rolSwitch())) {
+                if (!esRolEmpresaAutorizado(response.rolSwitch())) {
                     return false;
                 }
                 return Boolean.TRUE.equals(response.activoPagosMasivos());
@@ -91,5 +92,9 @@ public class EmbeddedSftpServer {
                 return false;
             }
         };
+    }
+
+    private Boolean esRolEmpresaAutorizado(String rolSwitch) {
+        return ROL_EMPRESA.equals(rolSwitch) || ROL_EMPRESA_PAGOS_MASIVOS.equals(rolSwitch);
     }
 }

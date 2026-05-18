@@ -1,5 +1,7 @@
 package com.banquito.switchpagos.parameter.service.impl;
 
+import com.banquito.switchpagos.parameter.config.ParametroSwitchOverrideProperties;
+import com.banquito.switchpagos.parameter.constants.CodigoParametroSwitch;
 import com.banquito.switchpagos.shared.exception.RecursoNoEncontradoException;
 import com.banquito.switchpagos.shared.exception.SolicitudInvalidaException;
 import com.banquito.switchpagos.parameter.model.ParametroSwitch;
@@ -17,9 +19,12 @@ import java.time.format.DateTimeParseException;
 public class ParametroSwitchServiceImpl implements ParametroSwitchService {
 
     private final ParametroSwitchRepository parametroSwitchRepository;
+    private final ParametroSwitchOverrideProperties overrideProperties;
 
-    public ParametroSwitchServiceImpl(ParametroSwitchRepository parametroSwitchRepository) {
+    public ParametroSwitchServiceImpl(ParametroSwitchRepository parametroSwitchRepository,
+                                      ParametroSwitchOverrideProperties overrideProperties) {
         this.parametroSwitchRepository = parametroSwitchRepository;
+        this.overrideProperties = overrideProperties;
     }
 
     @Override
@@ -57,7 +62,10 @@ public class ParametroSwitchServiceImpl implements ParametroSwitchService {
 
     @Override
     public LocalTime obtenerHora(String codigo) {
-        String valorTexto = obtenerValorTexto(codigo);
+        String valorTexto = obtenerOverrideHora(codigo);
+        if (valorTexto == null || valorTexto.isBlank()) {
+            valorTexto = obtenerValorTexto(codigo);
+        }
         try {
             return LocalTime.parse(valorTexto);
         } catch (DateTimeParseException exception) {
@@ -101,5 +109,15 @@ public class ParametroSwitchServiceImpl implements ParametroSwitchService {
                     "El codigo del parametro es obligatorio."
             );
         }
+    }
+
+    private String obtenerOverrideHora(String codigo) {
+        if (CodigoParametroSwitch.HORA_CORTE_PROCESO.equals(codigo)) {
+            return overrideProperties.getHoraCorteProceso();
+        }
+        if (CodigoParametroSwitch.HORA_INICIO_LOTES_ENCOLADOS.equals(codigo)) {
+            return overrideProperties.getHoraInicioLotesEncolados();
+        }
+        return null;
     }
 }

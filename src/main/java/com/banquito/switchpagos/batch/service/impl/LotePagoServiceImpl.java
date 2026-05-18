@@ -42,9 +42,12 @@ import com.banquito.switchpagos.batch.service.LotePagoService;
 import com.banquito.switchpagos.integrationcore.dto.internal.DiaHabilCoreResponse;
 import com.banquito.switchpagos.integrationcore.dto.internal.CuentaFavoritaPagosCoreResponse;
 import com.banquito.switchpagos.integrationcore.dto.internal.ValidacionCoreResponse;
+import com.banquito.switchpagos.integrationcore.dto.internal.ValidacionCuentaMatrizCoreApiResponse;
 import com.banquito.switchpagos.integrationcore.service.CoreBancarioService;
 import com.banquito.switchpagos.parameter.constants.CodigoParametroSwitch;
 import com.banquito.switchpagos.parameter.service.ParametroSwitchService;
+import com.banquito.switchpagos.pricing.dto.internal.ProyeccionLiquidacionInternalDto;
+import com.banquito.switchpagos.pricing.service.ProyeccionLiquidacionService;
 import com.banquito.switchpagos.processing.enums.EstadoLineaPago;
 import com.banquito.switchpagos.processing.mapper.LineaPagoMapper;
 import com.banquito.switchpagos.processing.service.LineaPagoService;
@@ -80,6 +83,7 @@ public class LotePagoServiceImpl implements LotePagoService {
     private final TipoServicioService tipoServicioService;
     private final LineaPagoService lineaPagoService;
     private final CoreBancarioService coreBancarioService;
+    private final ProyeccionLiquidacionService proyeccionLiquidacionService;
     private final AuditoriaSwitchService auditoriaSwitchService;
     private final ObjectMapper objectMapper;
     private final LotePagoMapper lotePagoMapper;
@@ -96,6 +100,7 @@ public class LotePagoServiceImpl implements LotePagoService {
                                TipoServicioService tipoServicioService,
                                LineaPagoService lineaPagoService,
                                CoreBancarioService coreBancarioService,
+                               ProyeccionLiquidacionService proyeccionLiquidacionService,
                                AuditoriaSwitchService auditoriaSwitchService,
                                ObjectMapper objectMapper,
                                LotePagoMapper lotePagoMapper,
@@ -111,6 +116,7 @@ public class LotePagoServiceImpl implements LotePagoService {
         this.tipoServicioService = tipoServicioService;
         this.lineaPagoService = lineaPagoService;
         this.coreBancarioService = coreBancarioService;
+        this.proyeccionLiquidacionService = proyeccionLiquidacionService;
         this.auditoriaSwitchService = auditoriaSwitchService;
         this.objectMapper = objectMapper;
         this.lotePagoMapper = lotePagoMapper;
@@ -467,24 +473,26 @@ public class LotePagoServiceImpl implements LotePagoService {
             return;
         }
 
-        if (CanalIngreso.SFTP.equals(lotePago.getCanalIngreso())) {
-            validarCuentaFavoritaSftp(lotePago, errores);
+        if (CanalIngreso.SFTP.equals(lotePago.getCanalIngreso())
+                && !validarCuentaFavoritaSftp(lotePago, errores)) {
             return;
         }
 
-        ValidacionCoreResponse validacionCuentaMatriz = coreBancarioService.validarCuentaMatriz(
+        ValidacionCuentaMatrizCoreApiResponse validacionCuentaMatriz = coreBancarioService.consultarValidacionCuentaMatriz(
                 lotePago.getRucEmpresa(),
                 lotePago.getCuentaMatrizCargo()
         );
         if (!Boolean.TRUE.equals(validacionCuentaMatriz.valida())) {
             errores.add(new ErrorGlobalResponse(
-                    codigoError(validacionCuentaMatriz, "CUENTA_MATRIZ_INVALIDA"),
-                    mensajeError(validacionCuentaMatriz, "La cuenta matriz no es valida para pagos masivos.")
+                    codigoError(validacionCuentaMatriz.codigo(), "CUENTA_MATRIZ_INVALIDA"),
+                    mensajeError(validacionCuentaMatriz.mensaje(), "La cuenta matriz no es valida para pagos masivos.")
             ));
+            return;
         }
+        validarCapacidadFinancieraDeclarada(lotePago, validacionCuentaMatriz, errores);
     }
 
-    private void validarCuentaFavoritaSftp(LotePago lotePago, List<ErrorGlobalResponse> errores) {
+    private Boolean validarCuentaFavoritaSftp(LotePago lotePago, List<ErrorGlobalResponse> errores) {
         CuentaFavoritaPagosCoreResponse cuentaFavorita = coreBancarioService.obtenerCuentaFavoritaPagos(
                 lotePago.getRucEmpresa()
         );
@@ -493,14 +501,42 @@ public class LotePagoServiceImpl implements LotePagoService {
                     codigoError(cuentaFavorita.codigo(), "CUENTA_FAVORITA_INVALIDA"),
                     mensajeError(cuentaFavorita.mensaje(), "La cuenta favorita de pagos masivos no es valida.")
             ));
-            return;
+            return Boolean.FALSE;
         }
         if (!lotePago.getCuentaMatrizCargo().equals(cuentaFavorita.numeroCuenta())) {
             errores.add(new ErrorGlobalResponse(
                     "CUENTA_FAVORITA_NO_COINCIDE",
                     "La cuenta matriz del lote SFTP no coincide con la cuenta favorita vigente en Core."
             ));
+            return Boolean.FALSE;
         }
+        return Boolean.TRUE;
+    }
+
+    private void validarCapacidadFinancieraDeclarada(LotePago lotePago,
+                                                     ValidacionCuentaMatrizCoreApiResponse validacionCuentaMatriz,
+                                                     List<ErrorGlobalResponse> errores) {
+        BigDecimal saldoDisponible = valorMonetario(validacionCuentaMatriz.saldoDisponible());
+        BigDecimal montoDeclarado = valorMonetario(lotePago.getMontoTotalDeclarado());
+        ProyeccionLiquidacionInternalDto proyeccion = proyeccionLiquidacionService.calcularProyeccion(
+                lotePago.getTipoServicio().getCodigo(),
+                lotePago.getTotalRegistrosDeclarado()
+        );
+        BigDecimal limiteSobregiro = Boolean.TRUE.equals(validacionCuentaMatriz.permiteSobregiro())
+                ? valorMonetario(validacionCuentaMatriz.limiteSobregiro())
+                : BigDecimal.ZERO;
+        BigDecimal capacidadTotal = saldoDisponible.add(limiteSobregiro);
+        BigDecimal requeridoTotal = montoDeclarado.add(valorMonetario(proyeccion.totalDebitado()));
+        if (capacidadTotal.compareTo(requeridoTotal) < 0) {
+            errores.add(new ErrorGlobalResponse(
+                    "CAPACIDAD_FINANCIERA_INSUFICIENTE",
+                    "La cuenta matriz no cubre el monto declarado mas la comision e IVA estimados con saldo disponible y sobregiro autorizado."
+            ));
+        }
+    }
+
+    private BigDecimal valorMonetario(BigDecimal valor) {
+        return valor != null ? valor : BigDecimal.ZERO;
     }
 
     private void validarCredencialSolicitud(RegistroLoteInternalDto registroLoteInternalDto,

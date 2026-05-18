@@ -11,6 +11,7 @@ import org.springframework.stereotype.Service;
 @Service
 public class AuthSwitchServiceImpl implements AuthSwitchService {
 
+    public static final String ROL_EMPRESA = "EMPRESA";
     public static final String ROL_EMPRESA_PAGOS_MASIVOS = "EMPRESA_PAGOS_MASIVOS";
 
     private final CoreBancarioService coreBancarioService;
@@ -58,10 +59,10 @@ public class AuthSwitchServiceImpl implements AuthSwitchService {
                     "Usuario o contrasena invalidos."
             );
         }
-        if (!ROL_EMPRESA_PAGOS_MASIVOS.equals(autenticacion.rolSwitch())) {
+        if (!esRolEmpresaAutorizado(autenticacion.rolSwitch())) {
             throw new SolicitudInvalidaException(
                     "ROL_SWITCH_NO_AUTORIZADO",
-                    "El usuario no tiene rol EMPRESA_PAGOS_MASIVOS."
+                    "El usuario no tiene rol de empresa autorizado para pagos masivos."
             );
         }
         if (!Boolean.TRUE.equals(autenticacion.activoPagosMasivos())) {
@@ -70,5 +71,9 @@ public class AuthSwitchServiceImpl implements AuthSwitchService {
                     "La empresa no tiene activo el servicio de pagos masivos."
             );
         }
+    }
+
+    private Boolean esRolEmpresaAutorizado(String rolSwitch) {
+        return ROL_EMPRESA.equals(rolSwitch) || ROL_EMPRESA_PAGOS_MASIVOS.equals(rolSwitch);
     }
 }
