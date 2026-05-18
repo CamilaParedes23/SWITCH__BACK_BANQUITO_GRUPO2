@@ -10,6 +10,7 @@ import com.banquito.switchpagos.integrationcore.dto.internal.MovimientoCoreRespo
 import com.banquito.switchpagos.integrationcore.dto.internal.CuentaFavoritaPagosCoreResponse;
 import com.banquito.switchpagos.integrationcore.dto.internal.ValidacionCoreResponse;
 import com.banquito.switchpagos.integrationcore.dto.internal.ValidacionCuentaCoreResponse;
+import com.banquito.switchpagos.integrationcore.dto.internal.ValidacionCuentaMatrizCoreApiResponse;
 
 import java.time.LocalDate;
 
@@ -20,6 +21,8 @@ public interface CoreBancarioService {
     ValidacionCoreResponse validarEmpresa(String ruc);
 
     ValidacionCoreResponse validarCuentaMatriz(String ruc, String numeroCuenta);
+
+    ValidacionCuentaMatrizCoreApiResponse consultarValidacionCuentaMatriz(String ruc, String numeroCuenta);
 
     CuentaFavoritaPagosCoreResponse obtenerCuentaFavoritaPagos(String ruc);
 

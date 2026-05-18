@@ -29,7 +29,6 @@ import com.banquito.switchpagos.integrationcore.service.CoreBancarioService;
 import com.banquito.switchpagos.shared.exception.IntegracionCoreException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.stereotype.Service;
@@ -43,7 +42,6 @@ import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 
 @Service
-@ConditionalOnProperty(name = "core.integration.mode", havingValue = "rest", matchIfMissing = true)
 public class CoreBancarioServiceRestClient implements CoreBancarioService {
 
     private static final String MENSAJE_CORE_NO_DISPONIBLE = "No fue posible comunicarse con el Core Bancario.";
@@ -67,20 +65,19 @@ public class CoreBancarioServiceRestClient implements CoreBancarioService {
 
     @Override
     public AutenticacionCoreResponse autenticar(String usuario, String contrasena) {
-        if (Boolean.TRUE.equals(properties.getIntegration().getMockAutenticacion())) {
-            AutenticacionCoreResponse autenticacion = construirAutenticacionMock(usuario, contrasena);
-            registrarAuditoria("CORE_LOGIN_SWITCH_MOCK", usuario, autenticacion.rolSwitch());
-            return autenticacion;
-        }
         try {
-            ApiResponseCore<AutenticacionCoreResponse> response = restClient.post()
+            AutenticacionCoreResponse autenticacion = restClient.post()
                     .uri("/api/v1/core/integracion-switch/autenticacion/login")
                     .body(new AutenticacionCoreRequest(usuario, contrasena))
                     .retrieve()
-                    .body(new ParameterizedTypeReference<>() {
-                    });
+                    .body(AutenticacionCoreResponse.class);
 
-            AutenticacionCoreResponse autenticacion = obtenerData(response);
+            if (autenticacion == null) {
+                throw new IntegracionCoreException(
+                        "ERROR_CORE",
+                        "El Core respondio sin datos validos para la operacion solicitada."
+                );
+            }
             registrarAuditoria("CORE_LOGIN_SWITCH", usuario, autenticacion.rolSwitch());
             return autenticacion;
         } catch (RestClientResponseException exception) {
@@ -140,6 +137,16 @@ public class CoreBancarioServiceRestClient implements CoreBancarioService {
 
     @Override
     public ValidacionCoreResponse validarCuentaMatriz(String ruc, String numeroCuenta) {
+        ValidacionCuentaMatrizCoreApiResponse validacion = consultarValidacionCuentaMatriz(ruc, numeroCuenta);
+        return new ValidacionCoreResponse(
+                Boolean.TRUE.equals(validacion.valida()),
+                mapearCodigoValidacionMatriz(validacion.codigo()),
+                validacion.mensaje()
+        );
+    }
+
+    @Override
+    public ValidacionCuentaMatrizCoreApiResponse consultarValidacionCuentaMatriz(String ruc, String numeroCuenta) {
         try {
             ApiResponseCore<ValidacionCuentaMatrizCoreApiResponse> response = restClient.get()
                     .uri("/api/v1/core/integracion-switch/empresas/{ruc}/cuentas/{numeroCuenta}/validacion-matriz",
@@ -151,18 +158,24 @@ public class CoreBancarioServiceRestClient implements CoreBancarioService {
 
             ValidacionCuentaMatrizCoreApiResponse validacion = obtenerData(response);
             registrarAuditoria("CORE_VALIDACION_CUENTA_MATRIZ", numeroCuenta, validacion.codigo());
-            return new ValidacionCoreResponse(
-                    Boolean.TRUE.equals(validacion.valida()),
-                    mapearCodigoValidacionMatriz(validacion.codigo()),
-                    validacion.mensaje()
-            );
+            return validacion;
         } catch (RestClientResponseException exception) {
             ErrorCoreResponse error = leerErrorCore(exception);
             String codigo = esNoEncontrado(error.code(), exception.getStatusCode())
                     ? "CUENTA_MATRIZ_NO_EXISTE"
                     : mapearCodigoValidacionMatriz(error.code());
             registrarAuditoria("CORE_VALIDACION_CUENTA_MATRIZ_RECHAZADA", numeroCuenta, codigo);
-            return new ValidacionCoreResponse(
+            return new ValidacionCuentaMatrizCoreApiResponse(
+                    numeroCuenta,
+                    ruc,
+                    Boolean.FALSE,
+                    Boolean.FALSE,
+                    null,
+                    Boolean.FALSE,
+                    null,
+                    null,
+                    Boolean.FALSE,
+                    null,
                     Boolean.FALSE,
                     codigo,
                     mensajeCore(error.message(), "No fue posible validar la cuenta matriz en Core.")
@@ -175,11 +188,6 @@ public class CoreBancarioServiceRestClient implements CoreBancarioService {
 
     @Override
     public CuentaFavoritaPagosCoreResponse obtenerCuentaFavoritaPagos(String ruc) {
-        if (Boolean.TRUE.equals(properties.getIntegration().getMockCuentaFavoritaPagos())) {
-            CuentaFavoritaPagosCoreResponse cuentaFavorita = construirCuentaFavoritaMock(ruc);
-            registrarAuditoria("CORE_CUENTA_FAVORITA_PAGOS_MOCK", ruc, cuentaFavorita.codigo());
-            return cuentaFavorita;
-        }
         try {
             ApiResponseCore<CuentaFavoritaPagosCoreResponse> response = restClient.get()
                     .uri("/api/v1/core/integracion-switch/empresas/{ruc}/cuenta-favorita-pagos", ruc)
@@ -454,41 +462,6 @@ public class CoreBancarioServiceRestClient implements CoreBancarioService {
                 LocalDate.now(),
                 null,
                 null
-        );
-    }
-
-    private AutenticacionCoreResponse construirAutenticacionMock(String usuario, String contrasena) {
-        Boolean credencialesValidas = usuario != null
-                && !usuario.isBlank()
-                && contrasena != null
-                && !contrasena.isBlank()
-                && usuario.equals(properties.getIntegration().getMockUsuarioEmpresa());
-        return new AutenticacionCoreResponse(
-                credencialesValidas,
-                credencialesValidas ? "EMPRESA" : null,
-                credencialesValidas ? 1 : null,
-                credencialesValidas ? 501 : null,
-                credencialesValidas ? properties.getIntegration().getMockRucEmpresa() : null,
-                usuario,
-                credencialesValidas ? "Empresa mock pagos masivos" : null,
-                credencialesValidas ? "EMPRESA_PAGOS_MASIVOS" : null,
-                credencialesValidas ? "ACTIVO" : null,
-                credencialesValidas
-        );
-    }
-
-    private CuentaFavoritaPagosCoreResponse construirCuentaFavoritaMock(String ruc) {
-        return new CuentaFavoritaPagosCoreResponse(
-                ruc,
-                Boolean.TRUE,
-                properties.getIntegration().getMockCuentaFavoritaPagosNumero(),
-                "ACTIVA",
-                Boolean.TRUE,
-                properties.getIntegration().getMockCuentaFavoritaPagosSaldoDisponible(),
-                Boolean.TRUE,
-                Boolean.TRUE,
-                "CUENTA_FAVORITA_VALIDA",
-                "Cuenta favorita valida para pagos masivos."
         );
     }
 
