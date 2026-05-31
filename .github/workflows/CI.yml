@@ -35,7 +35,36 @@ jobs:
           distribution: 'temurin'
           cache: maven
 
+      - name: Initialize database schema
+        run: PGPASSWORD=test psql -h localhost -U test -d testdb -f DB/modeloFisicoBD_Switch_v4_postgresql.sql
+        continue-on-error: true
+
       - name: Build and run tests
+        env:
+          SPRING_DATASOURCE_URL: jdbc:postgresql://localhost:5432/testdb
+          SPRING_DATASOURCE_USERNAME: test
+          SPRING_DATASOURCE_PASSWORD: test
+          SPRING_DATASOURCE_DRIVER_CLASS_NAME: org.postgresql.Driver
+          SPRING_JPA_HIBERNATE_DDL_AUTO: none
+          CORE_BASE_URL: http://localhost:8081
+          CORE_INTEGRATION_MODE: stub
+          CORE_INTEGRATION_CODIGO_SUBTIPO_PAGO_MASIVO: PAGO_MASIVO
+          CORE_INTEGRATION_CODIGO_CUENTA_INGRESOS: INGRESOS_SERVICIOS_MASIVOS
+          CORE_INTEGRATION_CODIGO_CUENTA_IVA: IVA_SERVICIOS_MASIVOS
+          CORE_INTEGRATION_NUMERO_CUENTA_INGRESOS: "9000000001"
+          CORE_INTEGRATION_NUMERO_CUENTA_IVA: "9000000002"
+          CORE_INTEGRATION_MOCK_AUTENTICACION: "true"
+          CORE_INTEGRATION_MOCK_CUENTA_FAVORITA_PAGOS: "true"
+          CORE_INTEGRATION_MOCK_USUARIO_EMPRESA: empresa001
+          CORE_INTEGRATION_MOCK_RUC_EMPRESA: "1790000001001"
+          CORE_INTEGRATION_MOCK_CUENTA_FAVORITA_PAGOS_NUMERO: "0010000000001"
+          CORE_INTEGRATION_MOCK_CUENTA_FAVORITA_PAGOS_SALDO_DISPONIBLE: "252.75"
+          SWITCH_SFTP_ENABLED: "false"
+          SWITCH_SFTP_HOST: 0.0.0.0
+          SWITCH_SFTP_PORT: "2222"
+          SWITCH_SFTP_ROOT_DIRECTORY: sftp-inbox
+          SWITCH_COLA_SCHEDULER_ENABLED: "false"
+          SWITCH_CORS_ALLOWED_ORIGINS: http://localhost:3000
         run: mvn -B -V -T 1C clean verify
 
       - name: Upload test reports
