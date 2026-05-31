@@ -23,26 +23,26 @@ jobs:
           key: ${{ secrets.GCP_SSH_KEY }}
           script: |
             # Pull latest image
-            docker pull ${{ secrets.DOCKER_USERNAME }}/back-core:latest
+            docker pull ${{ secrets.DOCKER_USERNAME }}/back-switch:latest
             
             # Stop and remove old container
-            docker stop back-core || true
-            docker rm back-core || true
+            docker stop back-switch || true
+            docker rm back-switch || true
             
             # Remove old image
-            docker rmi ${{ secrets.DOCKER_USERNAME }}/back-core:old || true
+            docker rmi ${{ secrets.DOCKER_USERNAME }}/back-switch:old || true
             
             # Tag current image as old
-            docker tag ${{ secrets.DOCKER_USERNAME }}/back-core:latest ${{ secrets.DOCKER_USERNAME }}/back-core:old || true
+            docker tag ${{ secrets.DOCKER_USERNAME }}/back-switch:latest ${{ secrets.DOCKER_USERNAME }}/back-switch:old || true
             
             # Run new container with environment variables
             docker run -d \
-              --name back-core \
+              --name back-switch \
               -p 8081:8081 \
               --env-file /home/${{ secrets.GCP_VM_USER }}/.env \
               -e SPRING_PROFILES_ACTIVE=prod \
               --restart unless-stopped \
-              ${{ secrets.DOCKER_USERNAME }}/back-core:latest
+              ${{ secrets.DOCKER_USERNAME }}/back-switch:latest
             
             # Show logs
-            docker logs back-core
+            docker logs back-switch
