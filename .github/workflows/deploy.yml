@@ -38,7 +38,7 @@ jobs:
             # Run new container with environment variables
             docker run -d \
               --name back-switch \
-              -p 8081:8081 \
+              -p 8080:8080 \
               --env-file /home/${{ secrets.GCP_VM_USER }}/.env \
               -e SPRING_PROFILES_ACTIVE=prod \
               --restart unless-stopped \
