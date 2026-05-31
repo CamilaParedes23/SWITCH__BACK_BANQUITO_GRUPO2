@@ -1,0 +1,48 @@
+name: Deploy to GCP VM
+
+on:
+  workflow_run:
+    workflows: ["Build & Push DockerHub Image"]
+    types:
+      - completed
+
+jobs:
+  deploy:
+    if: ${{ github.event.workflow_run.conclusion == 'success' }}
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: SSH to VM and deploy
+        uses: appleboy/ssh-action@v1.0.0
+        with:
+          host: ${{ secrets.GCP_VM_HOST }}
+          username: ${{ secrets.GCP_VM_USER }}
+          key: ${{ secrets.GCP_SSH_KEY }}
+          script: |
+            # Pull latest image
+            docker pull ${{ secrets.DOCKER_USERNAME }}/back-core:latest
+            
+            # Stop and remove old container
+            docker stop back-core || true
+            docker rm back-core || true
+            
+            # Remove old image
+            docker rmi ${{ secrets.DOCKER_USERNAME }}/back-core:old || true
+            
+            # Tag current image as old
+            docker tag ${{ secrets.DOCKER_USERNAME }}/back-core:latest ${{ secrets.DOCKER_USERNAME }}/back-core:old || true
+            
+            # Run new container with environment variables
+            docker run -d \
+              --name back-core \
+              -p 8081:8081 \
+              --env-file /home/${{ secrets.GCP_VM_USER }}/.env \
+              -e SPRING_PROFILES_ACTIVE=prod \
+              --restart unless-stopped \
+              ${{ secrets.DOCKER_USERNAME }}/back-core:latest
+            
+            # Show logs
+            docker logs back-core
