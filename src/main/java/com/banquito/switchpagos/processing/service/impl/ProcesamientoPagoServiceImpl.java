@@ -83,6 +83,11 @@ public class ProcesamientoPagoServiceImpl implements ProcesamientoPagoService {
         for (LineaPago lineaPago : lineas) {
             procesarLinea(loteProcesamiento, lineaPago);
         }
+        try {
+            notificacionService.enviarNotificacionesPendientes();
+        } catch (Exception exception) {
+            LOGGER.warn("No se pudieron enviar las notificaciones al finalizar el lote {}. Error: {}", uuidLote, exception.getMessage(), exception);
+        }
 
         ResultadoProcesamientoResponse resultado = resultadoProcesamientoMapper.toResultadoResponse(uuidLote, lineaPagoRepository);
         EstadoLote estadoFinal = determinarEstadoFinal(resultado);
@@ -197,12 +202,12 @@ public class ProcesamientoPagoServiceImpl implements ProcesamientoPagoService {
 
     private void notificarLineaExitosa(LoteProcesamientoInternalDto loteProcesamiento, LineaPago lineaPago) {
         try {
-            notificacionService.notificarLineaExitosa(
+            notificacionService.registrarNotificacionLineaExitosa(
                     lineaPagoMapper.toInternalDto(lineaPago),
                     loteProcesamiento.rucEmpresa()
             );
         } catch (RuntimeException exception) {
-            LOGGER.warn("No se pudo notificar la linea exitosa idLinea={} del lote {}. El pago permanece exitoso.",
+            LOGGER.warn("No se pudo registrar la notificacion de la linea exitosa idLinea={} del lote {}. El pago permanece exitoso.",
                     lineaPago.getIdLinea(),
                     loteProcesamiento.uuidLote(),
                     exception);
