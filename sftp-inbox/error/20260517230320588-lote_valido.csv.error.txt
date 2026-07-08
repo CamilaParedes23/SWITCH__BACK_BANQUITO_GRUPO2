@@ -1,1 +1,0 @@
-El RUC del archivo SFTP no coincide con la empresa autenticada en la carga.

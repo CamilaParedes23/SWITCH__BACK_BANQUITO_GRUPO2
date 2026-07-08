@@ -36,3 +36,12 @@ build/
 .env
 .env.*
 !.env.example
+
+# Runtime local SFTP
+/sftp-inbox/
+/pruebas-lotes/
+/load-test/
+/tmp/
+
+# Logs locales
+*.log
