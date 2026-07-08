@@ -36,6 +36,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.OffsetDateTime;
 import java.time.ZoneId;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
@@ -85,17 +86,30 @@ public class LiquidacionContableServiceImpl implements LiquidacionContableServic
     @Transactional(noRollbackFor = IntegracionCoreException.class)
     public LiquidarLoteResponse liquidarServicio(UUID uuidLote) {
         LoteProcesamientoInternalDto loteProcesamiento = lotePagoService.obtenerDatosProcesamiento(uuidLote);
-        validarLoteLiquidable(loteProcesamiento);
-        if (Boolean.TRUE.equals(liquidacionServicioRepository.existsByLotePagoUuidLote(uuidLote))) {
-            throw new ConflictoOperacionException(
-                    "LIQUIDACION_YA_EXISTE",
-                    "El lote ya tiene una liquidacion registrada."
+        LiquidacionServicio liquidacionCompletada = obtenerLiquidacionCompletadaSiExiste(uuidLote);
+        if (liquidacionCompletada != null) {
+            cerrarLoteSiCorresponde(uuidLote, loteProcesamiento);
+            return construirLiquidarLoteResponse(
+                    uuidLote,
+                    liquidacionCompletada,
+                    obtenerMovimientosRegistrados(liquidacionCompletada)
             );
         }
-
+        validarLoteLiquidable(loteProcesamiento);
         CalculoLiquidacionInternalDto calculo = tarifajeService.calcularLiquidacion(uuidLote);
         registrarAuditoria(uuidLote, loteProcesamiento.rucEmpresa(), "CALCULO_COMISION", construirDatosCalculo(calculo));
-        LiquidacionServicio liquidacionServicio = crearLiquidacionPendiente(loteProcesamiento, calculo);
+        LiquidacionServicio liquidacionServicio = prepararLiquidacionParaEjecucion(
+                uuidLote,
+                loteProcesamiento,
+                calculo
+        );
+        if (EstadoDebitoLiquidacion.COMPLETADO.equals(liquidacionServicio.getEstadoDebito())) {
+            return construirLiquidarLoteResponse(
+                    uuidLote,
+                    liquidacionServicio,
+                    obtenerMovimientosRegistrados(liquidacionServicio)
+            );
+        }
         try {
             List<MovimientoContableInternalDto> movimientos = ejecutarMovimientosContables(
                     loteProcesamiento,
@@ -148,6 +162,20 @@ public class LiquidacionContableServiceImpl implements LiquidacionContableServic
         return liquidacionServicioMapper.toComprobanteInternalDto(liquidacionServicio);
     }
 
+
+    private LiquidacionServicio obtenerLiquidacionCompletadaSiExiste(UUID uuidLote) {
+        return liquidacionServicioRepository.findByLotePagoUuidLote(uuidLote)
+                .filter(liquidacion -> EstadoDebitoLiquidacion.COMPLETADO.equals(liquidacion.getEstadoDebito()))
+                .filter(liquidacion -> !obtenerMovimientosRegistrados(liquidacion).isEmpty())
+                .orElse(null);
+    }
+    private void cerrarLoteSiCorresponde(UUID uuidLote, LoteProcesamientoInternalDto loteProcesamiento) {
+        if (EstadoLote.PROCESADO_PARCIAL.equals(loteProcesamiento.estado())
+                || EstadoLote.PROCESADO_TOTAL.equals(loteProcesamiento.estado())) {
+            lotePagoService.cerrarLoteLiquidado(uuidLote, "SISTEMA");
+        }
+    }
+
     private void validarLoteLiquidable(LoteProcesamientoInternalDto loteProcesamiento) {
         if (!EstadoLote.PROCESADO_PARCIAL.equals(loteProcesamiento.estado())
                 && !EstadoLote.PROCESADO_TOTAL.equals(loteProcesamiento.estado())) {
@@ -156,6 +184,56 @@ public class LiquidacionContableServiceImpl implements LiquidacionContableServic
                     "Solo se pueden liquidar lotes procesados parcial o totalmente."
             );
         }
+    }
+
+    private LiquidacionServicio prepararLiquidacionParaEjecucion(UUID uuidLote,
+                                                                  LoteProcesamientoInternalDto loteProcesamiento,
+                                                                  CalculoLiquidacionInternalDto calculo) {
+        return liquidacionServicioRepository.findByLotePagoUuidLote(uuidLote)
+                .map(liquidacionExistente -> prepararLiquidacionExistente(uuidLote, liquidacionExistente, calculo))
+                .orElseGet(() -> crearLiquidacionPendiente(loteProcesamiento, calculo));
+    }
+
+    private LiquidacionServicio prepararLiquidacionExistente(UUID uuidLote,
+                                                             LiquidacionServicio liquidacionServicio,
+                                                             CalculoLiquidacionInternalDto calculo) {
+        if (EstadoDebitoLiquidacion.COMPLETADO.equals(liquidacionServicio.getEstadoDebito())) {
+            List<MovimientoContableInternalDto> movimientos = obtenerMovimientosRegistrados(liquidacionServicio);
+            if (!movimientos.isEmpty()) {
+                return liquidacionServicio;
+            }
+            throw new ConflictoOperacionException(
+                    "LIQUIDACION_COMPLETADA_SIN_DETALLE",
+                    "El lote tiene una liquidacion completada sin detalle contable. Requiere revision operativa."
+            );
+        }
+
+        if (EstadoDebitoLiquidacion.REVERSADO.equals(liquidacionServicio.getEstadoDebito())) {
+            throw new ConflictoOperacionException(
+                    "LIQUIDACION_REVERSADA",
+                    "El lote tiene una liquidacion reversada y no puede liquidarse nuevamente."
+            );
+        }
+
+        detalleLiquidacionRepository.deleteAll(detalleLiquidacionRepository.findByLiquidacionServicio(liquidacionServicio));
+        liquidacionServicio.setTarifaAplicada(calculo.tarifaServicio());
+        liquidacionServicio.setTransaccionesExitosas(calculo.transaccionesExitosas());
+        liquidacionServicio.setTransaccionesFallidas(calculo.transaccionesFallidas());
+        liquidacionServicio.setTarifaUnitariaAplicada(calculo.tarifaUnitariaAplicada());
+        liquidacionServicio.setIvaPorcentajeAplicado(calculo.ivaPorcentajeAplicado());
+        liquidacionServicio.setSubtotalComision(calculo.subtotalComision());
+        liquidacionServicio.setMontoIva(calculo.montoIva());
+        liquidacionServicio.setTotalDebitado(calculo.totalDebitado());
+        liquidacionServicio.setEstadoDebito(EstadoDebitoLiquidacion.PENDIENTE);
+        liquidacionServicio.setPermiteSobregiro(Boolean.TRUE);
+        liquidacionServicio.setFechaLiquidacion(null);
+        liquidacionServicio.setFechaActualizacion(OffsetDateTime.now(ZONA_HORARIA_OPERATIVA));
+        LiquidacionServicio liquidacionPreparada = liquidacionServicioRepository.save(liquidacionServicio);
+        registrarAuditoria(uuidLote,
+                liquidacionServicio.getLotePago().getRucEmpresa(),
+                "LIQUIDACION_REINTENTO_PREPARADO",
+                construirDatosLiquidacion(liquidacionPreparada));
+        return liquidacionPreparada;
     }
 
     private LiquidacionServicio crearLiquidacionPendiente(LoteProcesamientoInternalDto loteProcesamiento,
@@ -168,10 +246,25 @@ public class LiquidacionContableServiceImpl implements LiquidacionContableServic
         return liquidacionServicioRepository.save(liquidacionServicio);
     }
 
+    private List<MovimientoContableInternalDto> obtenerMovimientosRegistrados(LiquidacionServicio liquidacionServicio) {
+        return detalleLiquidacionRepository.findByLiquidacionServicio(liquidacionServicio).stream()
+                .map(detalle -> new MovimientoContableInternalDto(
+                        detalle.getConcepto(),
+                        detalle.getMonto(),
+                        detalle.getUuidTransaccionCore(),
+                        detalle.getCuentaOrigenCore(),
+                        detalle.getCuentaDestinoCore(),
+                        liquidacionServicio.getEstadoDebito().name()
+                ))
+                .toList();
+    }
+
     private List<MovimientoContableInternalDto> ejecutarMovimientosContables(LoteProcesamientoInternalDto loteProcesamiento,
                                                                              CalculoLiquidacionInternalDto calculo) {
         List<MovimientoContableInternalDto> movimientos = new ArrayList<>();
-        UUID uuidGrupoCore = UUID.randomUUID();
+        UUID uuidGrupoCore = UUID.nameUUIDFromBytes(
+                ("LIQ-" + loteProcesamiento.uuidLote()).getBytes(StandardCharsets.UTF_8)
+        );
         LiquidacionCoreRequest liquidacionCoreRequest = new LiquidacionCoreRequest(
                 uuidGrupoCore,
                 loteProcesamiento.cuentaMatrizCargo(),
