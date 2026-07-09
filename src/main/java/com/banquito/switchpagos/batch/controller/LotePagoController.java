@@ -45,14 +45,12 @@ public class LotePagoController {
     @PostMapping(consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     @ResponseStatus(HttpStatus.CREATED)
     public CargaLoteResponse registrarLote(@RequestParam("archivo") MultipartFile archivo,
-                                           @RequestParam("tipoServicio") String tipoServicio,
-                                           @RequestParam("cuentaMatrizCargo") String cuentaMatrizCargo,
-                                           @RequestParam("canalIngreso") CanalIngreso canalIngreso,
-                                           @RequestParam(value = "idCredencialWebCore", required = false)
-                                           Integer idCredencialWebCore,
-                                           @RequestParam(value = "usernameCredencialWebCore", required = false)
-                                           String usernameCredencialWebCore,
-                                           @RequestParam(value = "rucEmpresa", required = false) String rucEmpresa) {
+            @RequestParam("tipoServicio") String tipoServicio,
+            @RequestParam("cuentaMatrizCargo") String cuentaMatrizCargo,
+            @RequestParam("canalIngreso") CanalIngreso canalIngreso,
+            @RequestParam(value = "idCredencialWebCore", required = false) Integer idCredencialWebCore,
+            @RequestParam(value = "usernameCredencialWebCore", required = false) String usernameCredencialWebCore,
+            @RequestParam(value = "rucEmpresa", required = false) String rucEmpresa) {
         RegistroLoteInternalDto registroLoteInternalDto = new RegistroLoteInternalDto(
                 archivo,
                 tipoServicio,
@@ -60,8 +58,7 @@ public class LotePagoController {
                 canalIngreso,
                 idCredencialWebCore,
                 usernameCredencialWebCore,
-                rucEmpresa
-        );
+                rucEmpresa);
         return lotePagoService.registrarLote(registroLoteInternalDto);
     }
 
@@ -70,10 +67,8 @@ public class LotePagoController {
             @RequestParam(value = "rucEmpresa", required = false) String rucEmpresa,
             @RequestParam(value = "estado", required = false) EstadoLote estado,
             @RequestParam(value = "tipoServicio", required = false) String tipoServicio,
-            @RequestParam(value = "fechaDesde", required = false)
-            @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) OffsetDateTime fechaDesde,
-            @RequestParam(value = "fechaHasta", required = false)
-            @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) OffsetDateTime fechaHasta,
+            @RequestParam(value = "fechaDesde", required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) OffsetDateTime fechaDesde,
+            @RequestParam(value = "fechaHasta", required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) OffsetDateTime fechaHasta,
             @RequestParam(value = "page", defaultValue = "0") Integer page,
             @RequestParam(value = "size", defaultValue = "20") Integer size) {
         Pageable pageable = PageRequest.of(page, size);
@@ -87,7 +82,7 @@ public class LotePagoController {
 
     @DeleteMapping("/{uuidLote}")
     public AnulacionLoteResponse anularLote(@PathVariable("uuidLote") UUID uuidLote,
-                                            @RequestBody(required = false) AnulacionLoteRequest anulacionLoteRequest) {
+            @RequestBody(required = false) AnulacionLoteRequest anulacionLoteRequest) {
         String motivo = anulacionLoteRequest != null ? anulacionLoteRequest.motivo() : "Anulacion solicitada.";
         return lotePagoService.anularLote(uuidLote, motivo);
     }
@@ -104,6 +99,10 @@ public class LotePagoController {
             @RequestParam(value = "page", defaultValue = "0") Integer page,
             @RequestParam(value = "size", defaultValue = "20") Integer size) {
         Pageable pageable = PageRequest.of(page, size);
+        System.out.println("Consultando líneas para el lote " + uuidLote);
+        System.out.println("Estado: " + estado);
+        System.out.println("Page: " + page);
+        System.out.println("Size: " + size);
         return lotePagoService.consultarLineas(uuidLote, estado, pageable);
     }
 }
