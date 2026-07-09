@@ -59,6 +59,7 @@ public class LotePagoController {
                 idCredencialWebCore,
                 usernameCredencialWebCore,
                 rucEmpresa);
+        System.out.println("===========Registrando lote=============");
         return lotePagoService.registrarLote(registroLoteInternalDto);
     }
 
@@ -99,10 +100,7 @@ public class LotePagoController {
             @RequestParam(value = "page", defaultValue = "0") Integer page,
             @RequestParam(value = "size", defaultValue = "20") Integer size) {
         Pageable pageable = PageRequest.of(page, size);
-        System.out.println("Consultando líneas para el lote " + uuidLote);
-        System.out.println("Estado: " + estado);
-        System.out.println("Page: " + page);
-        System.out.println("Size: " + size);
+
         return lotePagoService.consultarLineas(uuidLote, estado, pageable);
     }
 }
